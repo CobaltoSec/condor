@@ -41,11 +41,28 @@ _SSRF_PAYLOADS = [
     "http://127.0.0.1:22",
     # IPv6 loopback
     "http://[::1]:22/",
+    # Kubernetes API server
+    "http://10.96.0.1",
+    "http://10.96.0.1:443",
+    "http://kubernetes.default.svc",
+    "http://kubernetes.default.svc.cluster.local",
+    "http://10.96.0.1:8443",
 ]
 _SSRF_CONFIRMED_INDICATORS = [
     "ami-id", "instance-id", "ssh-", "OpenSSH", "iam/",
     "computeMetadata", "azureMetadata", "osProfile",
+    # Kubernetes API server responses
+    "apiVersion", "kubernetes", "\"kind\":", "Unauthorized",
 ]
+
+_SSTI_PAYLOADS = [
+    "{{7*7}}",
+    "${7*7}",
+    "<%= 7*7 %>",
+    "#{7*7}",
+    "{{config}}",
+]
+_SSTI_INDICATORS = ["49", "[object Object]", "RuntimeError"]
 
 # Fields in tool schemas that accept path or URL inputs
 _PATH_FIELDS = {"path", "filepath", "file", "filename", "dir", "directory"}
@@ -162,6 +179,41 @@ class ToolMisuseModule(BaseModule):
                                         "Run the tool execution process with minimal filesystem permissions."
                                     ),
                                     confidence=95,
+                                    endpoint=endpoint,
+                                ))
+                                break
+                    except Exception:
+                        pass
+
+            # SSTI via any tool parameter field
+            if fields:
+                endpoint = f"/api/v1/node-load-method/{tool_name}"
+                for payload in _SSTI_PAYLOADS:
+                    try:
+                        r = await platform.post(endpoint, json={
+                            "input": payload, "expression": payload,
+                            "value": payload, "text": payload,
+                        })
+                        if r.status_code == 200:
+                            body = r.text
+                            hit = next((ind for ind in _SSTI_INDICATORS if ind in body), None)
+                            if hit:
+                                findings.append(Finding(
+                                    title=f"SSTI in Tool Parameter: {tool_name}",
+                                    severity=Severity.HIGH,
+                                    owasp_id=self.owasp_id,
+                                    description=(
+                                        f"The tool '{tool_name}' evaluated a server-side template "
+                                        f"expression injected via its parameter fields. "
+                                        f"An attacker may escalate to full RCE depending on the "
+                                        f"template engine and sandbox configuration."
+                                    ),
+                                    evidence=f"POST {endpoint} with payload='{payload}' → indicator '{hit}' in response: {body[:200]}",
+                                    remediation=(
+                                        "Treat all user-supplied input as data, never as template code. "
+                                        "Use sandboxed template engines or disable expression evaluation entirely."
+                                    ),
+                                    confidence=85,
                                     endpoint=endpoint,
                                 ))
                                 break

@@ -84,9 +84,11 @@ def scan(
     targets: Annotated[Optional[Path], typer.Option("--targets", "-t", help="File with one URL [platform] per line")] = None,
     exclude_module: Annotated[Optional[List[str]], typer.Option("--exclude-module", "-x", help="Skip a module (repeatable)")] = None,
     concurrency: Annotated[int, typer.Option("--concurrency", help="Max parallel targets in batch scan")] = 5,
-    api_key: Annotated[Optional[str], typer.Option("--api-key", "-k", help="API key for authenticated instances")] = None,
-    username: Annotated[Optional[str], typer.Option("--username", help="Username for basic/login auth")] = None,
-    password: Annotated[Optional[str], typer.Option("--password", help="Password for basic/login auth")] = None,
+    api_key: Annotated[Optional[str], typer.Option("--api-key", "-k", help="API key for authenticated instances", envvar="CONDOR_API_KEY")] = None,
+    username: Annotated[Optional[str], typer.Option("--username", help="Username for basic/login auth", envvar="CONDOR_USERNAME")] = None,
+    password: Annotated[Optional[str], typer.Option("--password", help="Password for basic/login auth", envvar="CONDOR_PASSWORD")] = None,
+    proxy: Annotated[Optional[str], typer.Option("--proxy", help="HTTP/S proxy URL (e.g. http://127.0.0.1:8080)", envvar="CONDOR_PROXY")] = None,
+    insecure: Annotated[bool, typer.Option("--insecure", help="Skip TLS certificate verification")] = False,
 ) -> None:
     """Scan an agentic AI platform for security vulnerabilities."""
     if url and targets:
@@ -99,9 +101,9 @@ def scan(
         console.print(f"[red]Invalid --format '{fmt}'. Choose from: {', '.join(_VALID_FORMATS)}[/red]")
         raise typer.Exit(1)
     if targets:
-        asyncio.run(_scan_batch(targets, platform, module, output_dir, timeout, fail_on, fmt, exclude_module, concurrency, api_key, username, password))
+        asyncio.run(_scan_batch(targets, platform, module, output_dir, timeout, fail_on, fmt, exclude_module, concurrency, api_key, username, password, proxy, not insecure))
     else:
-        asyncio.run(_scan(url, platform, module, output_dir, timeout, fail_on, fmt, exclude_module, api_key=api_key, username=username, password=password))
+        asyncio.run(_scan(url, platform, module, output_dir, timeout, fail_on, fmt, exclude_module, api_key=api_key, username=username, password=password, proxy=proxy, verify_ssl=not insecure))
 
 
 async def _scan(
@@ -118,6 +120,8 @@ async def _scan(
     api_key: str | None = None,
     username: str | None = None,
     password: str | None = None,
+    proxy: str | None = None,
+    verify_ssl: bool = True,
 ) -> None:
     platform_cls = _PLATFORMS.get(platform_name)
     if not platform_cls:
@@ -152,9 +156,10 @@ async def _scan(
         console.print(f"Modules  : {', '.join(n for n, _ in active)}")
         console.print()
 
-    plat = platform_cls(url, timeout=timeout, api_key=api_key, username=username, password=password)
+    plat = platform_cls(url, timeout=timeout, api_key=api_key, username=username, password=password, proxy=proxy, verify_ssl=verify_ssl)
     findings = []
     modules_run = []
+    started_at = datetime.datetime.now(datetime.timezone.utc)
 
     async with plat:
         if not await plat.health_check():
@@ -195,7 +200,17 @@ async def _scan(
                         )
                 progress.advance(task)
 
-    result = ScanResult(target=url, platform=platform_name, findings=findings, modules_run=modules_run, surface=surface)
+    finished_at = datetime.datetime.now(datetime.timezone.utc)
+    result = ScanResult(
+        target=url,
+        platform=platform_name,
+        findings=findings,
+        modules_run=modules_run,
+        surface=surface,
+        started_at=started_at,
+        finished_at=finished_at,
+        duration_seconds=(finished_at - started_at).total_seconds(),
+    )
 
     # Write outputs
     report_path = output_dir / "report.json"
@@ -252,6 +267,8 @@ async def _scan_batch(
     api_key: str | None = None,
     username: str | None = None,
     password: str | None = None,
+    proxy: str | None = None,
+    verify_ssl: bool = True,
 ) -> None:
     try:
         targets = _parse_targets_file(targets_file)
@@ -288,7 +305,7 @@ async def _scan_batch(
         async def bounded(url: str, plat_name: str, target_dir: Path) -> bool:
             async with sem:
                 try:
-                    await _scan(url, plat_name, module_filter, target_dir, timeout, fail_on, fmt, exclude_module, verbose=False, api_key=api_key, username=username, password=password)
+                    await _scan(url, plat_name, module_filter, target_dir, timeout, fail_on, fmt, exclude_module, verbose=False, api_key=api_key, username=username, password=password, proxy=proxy, verify_ssl=verify_ssl)
                     progress.console.print(f"  [green]✓[/green] {url}")
                     return True
                 except SystemExit as exc:

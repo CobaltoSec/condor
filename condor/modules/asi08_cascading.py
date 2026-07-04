@@ -1,6 +1,8 @@
 """ASI08 — Cascading Agent Failures: missing rate limits, exposed task queues, unauthenticated job management."""
 from __future__ import annotations
 
+import asyncio
+
 from .base import BaseModule
 from ..core.models import AgentSurface, Finding, OWASPCategory, Severity
 from ..platforms.base import BasePlatform
@@ -46,6 +48,9 @@ _QUEUE_ENDPOINTS = [
 
 _CANCEL_ENDPOINT = "/api/v1/queue/condor-probe"
 
+_BURST_SIZE = 10
+_BURST_PROBE_PAYLOAD = {"question": "condor-probe", "stream": False}
+
 
 class CascadingFailuresModule(BaseModule):
     name        = "cascading-failures"
@@ -55,6 +60,7 @@ class CascadingFailuresModule(BaseModule):
     async def run(self, surface: AgentSurface, platform: BasePlatform) -> list[Finding]:
         findings: list[Finding] = []
         findings.extend(await self._check_rate_limits(surface, platform))
+        findings.extend(await self._check_rate_limit_burst(surface, platform))
         findings.extend(await self._check_task_queue(surface, platform))
         findings.extend(await self._check_job_cancellation(surface, platform))
         return findings
@@ -104,6 +110,57 @@ class CascadingFailuresModule(BaseModule):
                             "Return standard RateLimit-* headers per RFC 6585."
                         ),
                         confidence=70,
+                        endpoint=endpoint,
+                    ))
+                    break
+            except Exception:
+                pass
+        return findings
+
+    async def _check_rate_limit_burst(self, surface: AgentSurface, platform: BasePlatform) -> list[Finding]:
+        """Send a burst of concurrent requests and confirm whether rate limiting is enforced."""
+        findings = []
+        endpoints: list[str] = []
+        flow_ids = [f.get("id") for f in surface.flows if isinstance(f, dict) and f.get("id")]
+        if flow_ids:
+            endpoints.append(f"/api/v1/prediction/{flow_ids[0]}")
+        endpoints.extend(_INFERENCE_PROBE_ENDPOINTS)
+
+        for endpoint in endpoints:
+            try:
+                responses = await asyncio.gather(
+                    *[platform.post(endpoint, json=_BURST_PROBE_PAYLOAD) for _ in range(_BURST_SIZE)],
+                    return_exceptions=True,
+                )
+                valid = [r for r in responses if not isinstance(r, Exception) and _is_api_response(r)]
+                if not valid:
+                    continue
+                status_codes = [r.status_code for r in valid]
+                if any(sc == 429 for sc in status_codes):
+                    break  # rate limiting confirmed active
+                if _has_rate_limit_headers(valid[0]):
+                    break  # rate limit headers present — consider it configured
+                if any(sc in (200, 201, 400, 405, 422) for sc in status_codes):
+                    findings.append(Finding(
+                        title=f"No Rate Limiting Detected Under Burst Load: {endpoint}",
+                        severity=Severity.MEDIUM,
+                        owasp_id=self.owasp_id,
+                        description=(
+                            f"Sending {_BURST_SIZE} concurrent requests to {endpoint} produced no 429 "
+                            f"responses and no rate-limiting headers, indicating the endpoint has no "
+                            f"effective throttling. An attacker can flood inference requests to exhaust "
+                            f"LLM API quotas, cause resource starvation, and trigger cascading failures."
+                        ),
+                        evidence=(
+                            f"POST {endpoint} × {_BURST_SIZE} concurrent → "
+                            f"status codes: {status_codes} (no 429 returned)"
+                        ),
+                        remediation=(
+                            "Implement rate limiting on all inference endpoints via a reverse proxy "
+                            "(nginx, Caddy) or application-layer middleware. "
+                            "Return 429 with Retry-After header when limits are exceeded."
+                        ),
+                        confidence=75,
                         endpoint=endpoint,
                     ))
                     break

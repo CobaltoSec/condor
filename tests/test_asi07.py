@@ -116,3 +116,61 @@ async def test_dify_workflow_trigger_medium_on_400():
     wf = [f for f in findings if "accessible without auth" in f.title]
     assert len(wf) == 1
     assert wf[0].severity == Severity.MEDIUM
+
+
+@pytest.mark.asyncio
+async def test_origin_forgery_accepted():
+    """Internal-prediction returns 403 without headers, 200 with forged headers → HIGH finding."""
+    mod = InterAgentModule()
+    surface = _surface(flows=[{"id": "flow-abc"}])
+    endpoint = "/api/v1/internal-prediction/flow-abc"
+
+    resp_403 = MagicMock(status_code=403, text="Forbidden", content=b"Forbidden")
+    resp_403.headers = {}
+    resp_200 = _json_resp(200, {"text": "agent response"})
+
+    plat = MagicMock()
+
+    async def _get(path, **kw):
+        return MagicMock(status_code=404, text="", content=b"")
+
+    async def _post(path, **kw):
+        if path == endpoint:
+            hdrs = kw.get("headers", {})
+            if hdrs.get("X-Internal-Request") == "true":
+                return resp_200
+            return resp_403
+        return MagicMock(status_code=404, text="", content=b"")
+
+    plat.get = _get
+    plat.post = _post
+
+    findings = await mod.run(surface, plat)
+    forgery = [f for f in findings if "Origin Header Forgery" in f.title]
+    assert len(forgery) == 1
+    assert forgery[0].severity == Severity.HIGH
+    assert forgery[0].confidence == 90
+    assert "403" in forgery[0].evidence
+    assert "200" in forgery[0].evidence
+
+
+@pytest.mark.asyncio
+async def test_origin_forgery_skipped_when_already_open():
+    """If baseline returns 200 (already open), forgery check is skipped (existing check covers it)."""
+    mod = InterAgentModule()
+    surface = _surface(flows=[{"id": "flow-xyz"}])
+    endpoint = "/api/v1/internal-prediction/flow-xyz"
+    resp_200 = _json_resp(200, {"text": "agent response"})
+    platform = _mock_platform({endpoint: resp_200})
+    findings = await mod.run(surface, platform)
+    forgery = [f for f in findings if "Origin Header Forgery" in f.title]
+    assert forgery == []
+
+
+@pytest.mark.asyncio
+async def test_origin_forgery_skipped_without_flows():
+    """No flows in surface → forgery check returns no findings."""
+    mod = InterAgentModule()
+    findings = await mod.run(_surface(flows=[]), _mock_platform())
+    forgery = [f for f in findings if "Origin Header Forgery" in f.title]
+    assert forgery == []

@@ -15,6 +15,7 @@ def _surface(**kwargs) -> AgentSurface:
 def _mock_platform(
     get_responses: dict | None = None,
     put_responses: dict | None = None,
+    post_responses: dict | None = None,
 ) -> MagicMock:
     plat = MagicMock()
     resp_404 = MagicMock(status_code=404, text="Not Found", content=b"Not Found")
@@ -30,8 +31,14 @@ def _mock_platform(
             return put_responses[path]
         return resp_404
 
+    async def _post(path, **kw):
+        if post_responses and path in post_responses:
+            return post_responses[path]
+        return resp_404
+
     plat.get = _get
     plat.put = _put
+    plat.post = _post
     return plat
 
 
@@ -137,3 +144,56 @@ async def test_nested_system_prompt_exposure():
     sp = [f for f in findings if "system prompt exposure" in f.title]
     assert len(sp) == 1
     assert sp[0].severity == Severity.HIGH
+
+
+@pytest.mark.asyncio
+async def test_ai_disclosure_deceptive_response():
+    mod = TrustExploitationModule()
+    surface = _surface(flows=[{"id": "flow-d1"}])
+    resp = _json_resp(200, {"text": "I am a human agent here to help you today."})
+    platform = _mock_platform(post_responses={"/api/v1/prediction/flow-d1": resp})
+    findings = await mod.run(surface, platform)
+    disc = [f for f in findings if "AI Disclosure Failure" in f.title]
+    assert len(disc) == 1
+    assert disc[0].severity == Severity.HIGH
+    assert disc[0].confidence == 85
+
+
+@pytest.mark.asyncio
+async def test_ai_disclosure_honest_response_no_finding():
+    mod = TrustExploitationModule()
+    surface = _surface(flows=[{"id": "flow-d2"}])
+    resp = _json_resp(200, {"text": "I am an AI assistant powered by a large language model."})
+    platform = _mock_platform(post_responses={"/api/v1/prediction/flow-d2": resp})
+    findings = await mod.run(surface, platform)
+    disc = [f for f in findings if "AI Disclosure Failure" in f.title]
+    assert disc == []
+
+
+@pytest.mark.asyncio
+async def test_expanded_impersonation_new_pattern():
+    mod = TrustExploitationModule()
+    surface = _surface(flows=[{"id": "flow-e1"}])
+    resp = _json_resp(200, {
+        "id": "flow-e1",
+        "systemMessage": "My name is Sarah, your dedicated support advisor.",
+    })
+    platform = _mock_platform(get_responses={"/api/v1/chatflows/flow-e1": resp})
+    findings = await mod.run(surface, platform)
+    imp = [f for f in findings if "human impersonation" in f.title]
+    assert len(imp) == 1
+    assert imp[0].severity == Severity.CRITICAL
+
+
+@pytest.mark.asyncio
+async def test_expanded_impersonation_no_false_positive():
+    mod = TrustExploitationModule()
+    surface = _surface(flows=[{"id": "flow-e2"}])
+    resp = _json_resp(200, {
+        "id": "flow-e2",
+        "systemMessage": "You are a helpful assistant. Be friendly and professional.",
+    })
+    platform = _mock_platform(get_responses={"/api/v1/chatflows/flow-e2": resp})
+    findings = await mod.run(surface, platform)
+    imp = [f for f in findings if "human impersonation" in f.title]
+    assert imp == []

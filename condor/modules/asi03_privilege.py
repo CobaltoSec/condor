@@ -36,10 +36,54 @@ _WRITE_ENDPOINTS = [
 ]
 
 
+_IDOR_ENDPOINTS = [
+    "/api/v1/chatflows/1",
+    "/api/v1/chatflows/2",
+    "/api/v1/chatflows/3",
+    "/api/v1/chatflows/4",
+    "/api/v1/chatflows/5",
+    "/api/v1/chatflows/00000000-0000-0000-0000-000000000001",
+]
+
+_MASS_ASSIGN_FIELDS = {
+    "role": "admin",
+    "isAdmin": True,
+    "permissions": ["admin", "write", "delete"],
+    "userType": "administrator",
+}
+
+
 class PrivilegeAbuseModule(BaseModule):
     name        = "privilege-abuse"
     owasp_id    = OWASPCategory.ASI03
     description = "Detects unauthenticated access to sensitive platform endpoints (ASI03)"
+
+    async def _check_idor(self, platform: BasePlatform) -> list[Finding]:
+        for endpoint in _IDOR_ENDPOINTS:
+            try:
+                r = await platform.get(endpoint)
+                if r.status_code == 200 and _is_api_response(r):
+                    snippet = r.text[:200] if r.text else "(no body)"
+                    return [Finding(
+                        title="IDOR: Unauthenticated Object Access",
+                        severity=Severity.MEDIUM,
+                        owasp_id=self.owasp_id,
+                        description=(
+                            f"The endpoint {endpoint} returns object data without authentication "
+                            f"and without validating the caller's ownership. An attacker can "
+                            f"enumerate sequential IDs to access other users' data."
+                        ),
+                        evidence=f"GET {endpoint} → 200 OK without auth: {snippet}",
+                        remediation=(
+                            "Enforce object-level authorization: verify the authenticated user "
+                            "owns or has explicit access to the requested resource ID."
+                        ),
+                        confidence=85,
+                        endpoint=endpoint,
+                    )]
+            except Exception:
+                pass
+        return []
 
     async def run(self, surface: AgentSurface, platform: BasePlatform) -> list[Finding]:
         findings: list[Finding] = []
@@ -77,19 +121,20 @@ class PrivilegeAbuseModule(BaseModule):
             except Exception:
                 pass
 
-        # Write access
+        # Write access + mass assignment probe
         for method, endpoint, severity, what in _WRITE_ENDPOINTS:
             try:
-                r = await platform.post(endpoint, json={"name": "_condor_probe_", "test": True})
+                payload = {"name": "_condor_probe_", "test": True, **_MASS_ASSIGN_FIELDS}
+                r = await platform.post(endpoint, json=payload)
                 if r.status_code in (200, 201) and _is_api_response(r):
-                    # Try to clean up
+                    # Try to clean up created resource
                     try:
                         body = r.json()
                         item_id = body.get("id") or body.get("_id")
                         if item_id:
                             await platform.delete(f"{endpoint}/{item_id}")
                     except Exception:
-                        pass
+                        body = {}
 
                     findings.append(Finding(
                         title=f"Unauthenticated write access to {endpoint}",
@@ -105,7 +150,36 @@ class PrivilegeAbuseModule(BaseModule):
                         confidence=98,
                         endpoint=endpoint,
                     ))
+
+                    # Check mass assignment: did any privilege field survive into the response?
+                    try:
+                        resp_body = r.json() if not isinstance(body, dict) else body  # type: ignore[assignment]
+                    except Exception:
+                        resp_body = {}
+                    accepted = [
+                        f"{k}={v!r}" for k, v in _MASS_ASSIGN_FIELDS.items()
+                        if resp_body.get(k) == v
+                    ]
+                    if accepted:
+                        findings.append(Finding(
+                            title=f"Mass Assignment: Privilege Fields Accepted at {endpoint}",
+                            severity=Severity.MEDIUM,
+                            owasp_id=self.owasp_id,
+                            description=(
+                                f"The endpoint {endpoint} accepted and stored privilege-escalation "
+                                f"fields submitted in the POST body. An attacker can craft requests "
+                                f"to assign admin roles or bypass access controls."
+                            ),
+                            evidence=f"POST {endpoint} → accepted fields: {', '.join(accepted)}",
+                            remediation=(
+                                "Use an explicit allowlist of fields that clients are permitted to set. "
+                                "Strip or reject any fields not in the allowlist before persistence."
+                            ),
+                            confidence=90,
+                            endpoint=endpoint,
+                        ))
             except Exception:
                 pass
 
+        findings.extend(await self._check_idor(platform))
         return findings

@@ -81,7 +81,7 @@ async def test_vector_upsert_injection_critical():
     resp = _json_resp(200, {"message": "ok"})
     platform = _mock_platform({"/api/v1/vector/upsert/abc123": resp})
     findings = await mod.run(surface, platform)
-    inject = [f for f in findings if "injection" in f.title.lower()]
+    inject = [f for f in findings if "inject" in f.title.lower()]
     assert len(inject) == 1
     assert inject[0].severity == Severity.CRITICAL
     assert inject[0].confidence == 90
@@ -117,5 +117,48 @@ async def test_no_vector_probe_without_flows():
     mod = MemoryPoisoningModule()
     surface = _surface(flows=[])
     findings = await mod.run(surface, _mock_platform())
-    inject = [f for f in findings if "injection" in f.title.lower() or "accessible without auth" in f.title]
+    inject = [f for f in findings if "inject" in f.title.lower() or "accessible without auth" in f.title]
     assert inject == []
+
+
+@pytest.mark.asyncio
+async def test_adversarial_injection_success():
+    """Both access probe and adversarial probe return 200 → CRITICAL with adversarial title."""
+    mod = MemoryPoisoningModule()
+    surface = _surface(flows=[{"id": "abc123"}])
+    resp_200 = _json_resp(200, {"message": "ok"})
+    platform = _mock_platform({"/api/v1/vector/upsert/abc123": resp_200})
+    findings = await mod.run(surface, platform)
+    inject = [f for f in findings if "adversarial" in f.title.lower()]
+    assert len(inject) == 1
+    assert inject[0].severity == Severity.CRITICAL
+    assert "CONDOR_MEMORY_INJECTED" in inject[0].evidence
+
+
+@pytest.mark.asyncio
+async def test_adversarial_injection_partial():
+    """Access probe returns 200, adversarial probe returns 403 → HIGH (access only)."""
+    mod = MemoryPoisoningModule()
+    surface = _surface(flows=[{"id": "abc123"}])
+
+    call_count = {"n": 0}
+
+    async def _post(path, **kw):
+        if path == "/api/v1/vector/upsert/abc123":
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return _json_resp(200, {"message": "ok"})
+            return MagicMock(status_code=403, text="forbidden", content=b"forbidden")
+        return MagicMock(status_code=404, text="", content=b"")
+
+    async def _get(path, **kw):
+        return MagicMock(status_code=404, text="", content=b"")
+
+    plat = MagicMock()
+    plat.get = _get
+    plat.post = _post
+
+    findings = await mod.run(surface, plat)
+    high = [f for f in findings if "unauthenticated vectorstore access" in f.title.lower()]
+    assert len(high) == 1
+    assert high[0].severity == Severity.HIGH

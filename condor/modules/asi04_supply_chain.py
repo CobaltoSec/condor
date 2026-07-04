@@ -11,13 +11,12 @@ from ..platforms.base import BasePlatform
 
 _OSV_API = "https://api.osv.dev/v1/query"
 
-# Patterns that indicate a poisoned tool description
 _INJECTION_PATTERNS = [
-    re.compile(r"\b(ignore|forget|disregard|override)\b", re.IGNORECASE),
-    re.compile(r"new instruction", re.IGNORECASE),
-    re.compile(r"\b(send to|exfiltrate|webhook)\b", re.IGNORECASE),
-    re.compile(r"https?://", re.IGNORECASE),
-    re.compile(r"\b(admin|sudo|root|elevated)\b", re.IGNORECASE),
+    re.compile(r'(ignore|disregard|forget)\s+.{0,30}(instruction|above|previous|system|prompt)', re.I),
+    re.compile(r'(your\s+new\s+task|new\s+instruction|override\s+previous)', re.I),
+    re.compile(r'(you\s+are\s+now|act\s+as|pretend\s+you\s+are).{0,30}(without\s+restriction|no\s+limit|unrestricted)', re.I),
+    re.compile(r'(reveal|output|print|show|repeat).{0,20}(system\s+prompt|instruction|above|previous)', re.I),
+    re.compile(r'(CONFIDENTIAL|SECRET|PRIVATE).{0,10}(do\s+not\s+share|never\s+reveal)', re.I),
 ]
 
 _MAX_TOOLS_OSV = 10
@@ -39,6 +38,21 @@ def _first_suspicious_match(text: str) -> str | None:
             end   = min(len(text), m.end() + 60)
             return f"...{text[start:end]}..."
     return None
+
+
+async def _query_osv_ecosystem(
+    client: httpx.AsyncClient, tname: str, tver: str | None, ecosystem: str
+) -> list[dict]:
+    try:
+        payload: dict = {"package": {"name": tname, "ecosystem": ecosystem}}
+        if tver:
+            payload["version"] = tver
+        r = await client.post(_OSV_API, json=payload)
+        if r.status_code != 200:
+            return []
+        return r.json().get("vulns", [])
+    except Exception:
+        return []
 
 
 class SupplyChainModule(BaseModule):
@@ -99,7 +113,7 @@ class SupplyChainModule(BaseModule):
                     endpoint="/api/v1/tools",
                 ))
 
-        # 3. CVE check via OSV.dev
+        # 3. CVE check via OSV.dev (npm + PyPI)
         checked: set[str] = set()
         async with httpx.AsyncClient(timeout=15) as client:
             for tool in surface.tools[:_MAX_TOOLS_OSV]:
@@ -107,64 +121,73 @@ class SupplyChainModule(BaseModule):
                 if not tname or tname in checked:
                     continue
                 checked.add(tname)
-                try:
-                    payload: dict = {"package": {"name": tname, "ecosystem": "npm"}}
-                    tver = _tool_version(tool)
-                    if tver:
-                        payload["version"] = tver
-                    r = await client.post(_OSV_API, json=payload)
-                    if r.status_code != 200:
-                        continue
-                    data = r.json()
-                    vulns = data.get("vulns", [])
-                    if not vulns:
-                        continue
+                tver = _tool_version(tool)
 
-                    cve_ids = [
-                        alias
-                        for v in vulns[:3]
-                        for alias in v.get("aliases", [v.get("id", "")])
-                        if alias.startswith("CVE-")
-                    ][:3]
-                    if not cve_ids:
-                        cve_ids = [v.get("id", "?") for v in vulns[:3]]
+                npm_vulns = await _query_osv_ecosystem(client, tname, tver, "npm")
+                pypi_vulns = await _query_osv_ecosystem(client, tname, tver, "PyPI")
 
-                    # Determine severity from CVSS if present
-                    sev = Severity.HIGH
-                    for v in vulns:
-                        for sev_info in v.get("severity", []):
-                            score_str = sev_info.get("score", "")
-                            try:
-                                score = float(score_str)
-                                if score >= 9.0:
-                                    sev = Severity.CRITICAL
-                                    break
-                            except (ValueError, TypeError):
-                                pass
+                # Track ecosystem per vuln ID, then deduplicate
+                eco_map: dict[str, str] = {}
+                for v in npm_vulns:
+                    eco_map[v.get("id", "?")] = "npm"
+                for v in pypi_vulns:
+                    vid = v.get("id", "?")
+                    eco_map[vid] = "npm+PyPI" if vid in eco_map else "PyPI"
 
-                    findings.append(Finding(
-                        title=f"Tool with known CVEs: {tname}",
-                        severity=sev,
-                        owasp_id=self.owasp_id,
-                        description=(
-                            f"Tool '{tname}' has {len(vulns)} known vulnerability/vulnerabilities "
-                            f"in the OSV.dev database. Compromised dependencies in agentic platforms "
-                            f"can lead to data exfiltration, RCE, or supply chain attacks."
-                        ),
-                        evidence=(
-                            f"OSV query for '{tname}'"
-                            + (f" v{tver}" if tver else "")
-                            + f" → {len(vulns)} vuln(s). CVEs: {', '.join(cve_ids)}"
-                        ),
-                        remediation=(
-                            f"Update '{tname}' to a patched version. "
-                            "Review OSV.dev for specific CVE details and upgrade paths. "
-                            "Pin dependency versions and add supply chain monitoring."
-                        ),
-                        confidence=85,
-                        endpoint="/api/v1/tools",
-                    ))
-                except Exception:
-                    pass
+                seen_ids: set[str] = set()
+                all_vulns: list[dict] = []
+                for v in npm_vulns + pypi_vulns:
+                    vid = v.get("id", "")
+                    if vid not in seen_ids:
+                        seen_ids.add(vid)
+                        all_vulns.append(v)
+
+                if not all_vulns:
+                    continue
+
+                cve_ids: list[str] = []
+                for v in all_vulns[:3]:
+                    vid = v.get("id", "?")
+                    eco = eco_map.get(vid, "?")
+                    cve = next(
+                        (a for a in v.get("aliases", []) if a.startswith("CVE-")),
+                        vid,
+                    )
+                    cve_ids.append(f"{eco}: {cve}")
+
+                sev = Severity.HIGH
+                for v in all_vulns:
+                    for sev_info in v.get("severity", []):
+                        score_str = sev_info.get("score", "")
+                        try:
+                            score = float(score_str)
+                            if score >= 9.0:
+                                sev = Severity.CRITICAL
+                                break
+                        except (ValueError, TypeError):
+                            pass
+
+                findings.append(Finding(
+                    title=f"Tool with known CVEs: {tname}",
+                    severity=sev,
+                    owasp_id=self.owasp_id,
+                    description=(
+                        f"Tool '{tname}' has {len(all_vulns)} known vulnerability/vulnerabilities "
+                        f"in the OSV.dev database. Compromised dependencies in agentic platforms "
+                        f"can lead to data exfiltration, RCE, or supply chain attacks."
+                    ),
+                    evidence=(
+                        f"OSV query for '{tname}'"
+                        + (f" v{tver}" if tver else "")
+                        + f" → {len(all_vulns)} vuln(s). CVEs: {', '.join(cve_ids)}"
+                    ),
+                    remediation=(
+                        f"Update '{tname}' to a patched version. "
+                        "Review OSV.dev for specific CVE details and upgrade paths. "
+                        "Pin dependency versions and add supply chain monitoring."
+                    ),
+                    confidence=85,
+                    endpoint="/api/v1/tools",
+                ))
 
         return findings

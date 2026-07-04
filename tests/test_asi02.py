@@ -164,3 +164,49 @@ async def test_potential_ssrf_medium():
     assert len(pot_ssrf) == 1
     assert pot_ssrf[0].severity == Severity.MEDIUM
     assert pot_ssrf[0].confidence == 60
+
+
+@pytest.mark.asyncio
+async def test_ssti_detected():
+    mod = ToolMisuseModule()
+    tool = {
+        "name": "template-tool",
+        "inputParams": [{"name": "input", "type": "string"}],
+    }
+    surface = _surface(tools=[tool])
+
+    resp_ssti = MagicMock(
+        status_code=200,
+        text='{"result": "49"}',
+        content=b'{"result": "49"}',
+    )
+    platform = _mock_platform({"/api/v1/node-load-method/template-tool": resp_ssti})
+
+    findings = await mod.run(surface, platform)
+    ssti = [f for f in findings if "SSTI" in f.title]
+    assert len(ssti) == 1
+    assert ssti[0].severity == Severity.HIGH
+    assert "template-tool" in ssti[0].title
+
+
+@pytest.mark.asyncio
+async def test_k8s_ssrf_confirmed():
+    mod = ToolMisuseModule()
+    tool = {
+        "name": "http-tool",
+        "inputParams": [{"name": "url", "type": "string"}],
+    }
+    surface = _surface(tools=[tool])
+
+    # Kubernetes API server returns 401 Unauthorized with JSON body containing "kind"
+    resp_k8s = MagicMock(
+        status_code=200,
+        text='{"kind": "Status", "apiVersion": "v1", "status": "Failure", "message": "Unauthorized"}',
+        content=b'{"kind": "Status", "apiVersion": "v1"}',
+    )
+    platform = _mock_platform({"/api/v1/node-load-method/http-tool": resp_k8s})
+
+    findings = await mod.run(surface, platform)
+    ssrf = [f for f in findings if "SSRF via tool URL" in f.title]
+    assert len(ssrf) == 1
+    assert ssrf[0].severity == Severity.CRITICAL

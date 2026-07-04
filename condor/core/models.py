@@ -1,6 +1,7 @@
 """Core data models for Condor."""
 from __future__ import annotations
 
+import datetime
 from enum import Enum
 from typing import Any
 from pydantic import BaseModel, Field
@@ -54,11 +55,14 @@ class AgentSurface(BaseModel):
 
 
 class ScanResult(BaseModel):
-    target:      str
-    platform:    str
-    findings:    list[Finding] = Field(default_factory=list)
-    modules_run: list[str]     = Field(default_factory=list)
-    surface:     AgentSurface | None = None
+    target:           str
+    platform:         str
+    findings:         list[Finding]    = Field(default_factory=list)
+    modules_run:      list[str]        = Field(default_factory=list)
+    surface:          AgentSurface | None = None
+    started_at:       datetime.datetime | None = None
+    finished_at:      datetime.datetime | None = None
+    duration_seconds: float | None = None
 
     @property
     def finding_count(self) -> dict[str, int]:

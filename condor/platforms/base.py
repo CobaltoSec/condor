@@ -23,13 +23,17 @@ class BasePlatform(ABC):
         api_key: str | None = None,
         username: str | None = None,
         password: str | None = None,
+        proxy: str | None = None,
+        verify_ssl: bool = True,
     ):
-        self.base_url  = base_url.rstrip("/")
-        self.timeout   = timeout
-        self._headers  = headers or {}
-        self._api_key  = api_key
-        self._username = username
-        self._password = password
+        self.base_url   = base_url.rstrip("/")
+        self.timeout    = timeout
+        self._headers   = headers or {}
+        self._api_key   = api_key
+        self._username  = username
+        self._password  = password
+        self._proxy     = proxy
+        self._verify_ssl = verify_ssl
         self._client: httpx.AsyncClient | None = None
 
     async def __aenter__(self) -> "BasePlatform":
@@ -38,6 +42,8 @@ class BasePlatform(ABC):
             timeout=self.timeout,
             headers=self._headers,
             follow_redirects=True,
+            proxy=self._proxy,
+            verify=self._verify_ssl,
         )
         await self._authenticate()
         return self

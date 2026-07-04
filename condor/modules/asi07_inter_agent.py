@@ -24,6 +24,14 @@ _FLOWISE_AGENTFLOW_ENDPOINTS = [
 # Internal agent-to-agent communication channel (higher privilege than /prediction)
 _FLOWISE_INTERNAL_PREDICTION = "/api/v1/internal-prediction/{flow_id}"
 
+# Headers that simulate an internal/trusted agent origin
+_FORGED_INTERNAL_HEADERS = {
+    "X-Forwarded-For": "127.0.0.1",
+    "X-Internal-Request": "true",
+    "X-Agent-Source": "internal",
+    "X-Flowise-Internal": "1",
+}
+
 # AutoGen Studio inter-agent endpoints
 _AUTOGEN_INTERAGENT_ENDPOINTS = [
     "/api/teams",
@@ -58,6 +66,7 @@ class InterAgentModule(BaseModule):
         findings: list[Finding] = []
         findings.extend(await self._check_agentflows(surface, platform))
         findings.extend(await self._check_internal_prediction(surface, platform))
+        findings.extend(await self._check_origin_forgery(surface, platform))
         findings.extend(await self._check_autogen_teams(surface, platform))
         findings.extend(await self._check_workflow_trigger(surface, platform))
         return findings
@@ -126,6 +135,50 @@ class InterAgentModule(BaseModule):
                             "to loopback/internal network via reverse proxy."
                         ),
                         confidence=95,
+                        endpoint=endpoint,
+                    ))
+                    break
+            except Exception:
+                pass
+        return findings
+
+    async def _check_origin_forgery(self, surface: AgentSurface, platform: BasePlatform) -> list[Finding]:
+        """Flowise: test whether forged internal-origin headers bypass inter-agent channel auth."""
+        findings = []
+        flow_ids = [f.get("id") for f in surface.flows if isinstance(f, dict) and f.get("id")]
+        if not flow_ids:
+            return findings
+        for flow_id in flow_ids[:2]:
+            endpoint = _FLOWISE_INTERNAL_PREDICTION.format(flow_id=flow_id)
+            try:
+                r_base = await platform.post(endpoint, json={"question": "condor-probe"})
+                if r_base.status_code not in (401, 403):
+                    continue  # already open or unavailable — _check_internal_prediction covers open case
+                r_forged = await platform.post(
+                    endpoint,
+                    json={"question": "condor-probe"},
+                    headers=_FORGED_INTERNAL_HEADERS,
+                )
+                if r_forged.status_code in (200, 201) and _is_api_response(r_forged):
+                    findings.append(Finding(
+                        title=f"Inter-Agent Channel: Origin Header Forgery Accepted: {endpoint}",
+                        severity=Severity.HIGH,
+                        owasp_id=self.owasp_id,
+                        description=(
+                            f"The Flowise internal prediction endpoint {endpoint} rejected unauthenticated "
+                            f"requests ({r_base.status_code}) but accepted a request with forged "
+                            f"internal-origin headers (X-Forwarded-For: 127.0.0.1, X-Internal-Request: true). "
+                            f"An attacker can bypass inter-agent channel authentication by spoofing these headers."
+                        ),
+                        evidence=(
+                            f"POST {endpoint} without headers → {r_base.status_code}; "
+                            f"POST with X-Internal-Request: true → {r_forged.status_code} (access granted)"
+                        ),
+                        remediation=(
+                            "Do not trust X-Forwarded-For or custom internal-origin headers for access control. "
+                            "Restrict internal-prediction endpoints to loopback only via reverse proxy firewall rules."
+                        ),
+                        confidence=90,
                         endpoint=endpoint,
                     ))
                     break
