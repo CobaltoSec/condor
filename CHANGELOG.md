@@ -1,5 +1,15 @@
 # Changelog
 
+## [RT-CONDOR-V02] — 2026-07-04 — ASI06 + ASI07 + AutoGen adapter + false-positive fix
+
+- 2 nuevos módulos: `memory-poisoning` (ASI06) y `inter-agent` (ASI07) — Condor pasa a 7/10 módulos
+- ASI06: detecta vectorstores accesibles sin auth (Flowise docstore, Langflow monitor/messages, Dify datasets) y prueba inyección de documentos en RAG pipeline
+- ASI07: detecta agentflows expuestos (Flowise), internal-prediction channel (bypass de guardrails), teams/sessions/runs de AutoGen Studio, y workflow trigger sin auth (Dify)
+- Nuevo platform adapter `autogen` — enumera teams, tools, sessions; health check multi-endpoint
+- **Fix crítico (todos los módulos de probing)**: `_is_api_response()` filtra respuestas `text/html` que generaban falsos positivos CRITICAL/HIGH al escanear plataformas Next.js (Flowise 3.x); guard `isinstance(ct, str)` preserva mocks
+- D1 (E2E Flowise) diferido: Flowise 2.x+ auto-inicializa workspace auth en SQLite; requiere `flowiseai/flowise:1.8.2` para instancia sin auth
+- 21 tests nuevos; suite total: 59/59 passing
+
 ## [RT-CONDOR-V01] — 2026-07-04 — Platform Coverage + ASI04 + ASI02
 
 - 2 nuevos módulos: `tool-misuse` (ASI02) y `supply-chain` (ASI04) — Condor pasa a 5/10 módulos operativos
