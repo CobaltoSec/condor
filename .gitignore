@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+condor-sessions/
+*.sarif
+report.json
+report.md
+report.html
+.env
