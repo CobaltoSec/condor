@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import json
 
 from .base import BasePlatform
 from ..core.models import AgentSurface
@@ -17,6 +18,16 @@ _COMMON_ENDPOINTS = [
     "/api/v1/prediction",
     "/health", "/healthz", "/_health",
     "/api/version", "/api/v1/version",
+]
+
+_OPENAPI_PATHS = [
+    "/openapi.json",
+    "/swagger.json",
+    "/api-docs",
+    "/api/openapi.json",
+    "/docs/openapi.json",
+    "/v1/openapi.json",
+    "/swagger/v1/swagger.json",
 ]
 
 
@@ -41,6 +52,44 @@ class GenericPlatform(BasePlatform):
                 continue
         return False
 
+    async def _discover_openapi_endpoints(self, surface: AgentSurface) -> None:
+        for path in _OPENAPI_PATHS:
+            try:
+                r = await self.get(path)
+                if r.status_code != 200:
+                    continue
+                try:
+                    spec = json.loads(r.text)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if not isinstance(spec, dict) or "paths" not in spec:
+                    continue
+                existing = set(surface.endpoints)
+                for ep in spec["paths"]:
+                    if ep not in existing:
+                        surface.endpoints.append(ep)
+                        existing.add(ep)
+                surface.raw_info["openapi_spec_found"] = True
+                surface.raw_info["openapi_path"] = path
+                return
+            except Exception:
+                continue
+
+    async def _discover_graphql(self, surface: AgentSurface) -> None:
+        try:
+            r = await self.post("/graphql", json={"query": "{ __typename }"})
+            if r.status_code == 200:
+                try:
+                    body = json.loads(r.text)
+                except (json.JSONDecodeError, ValueError):
+                    return
+                if isinstance(body, dict) and "data" in body:
+                    if "/graphql" not in surface.endpoints:
+                        surface.endpoints.append("/graphql")
+                    surface.raw_info["graphql_exposed"] = True
+        except Exception:
+            pass
+
     async def enumerate(self) -> AgentSurface:
         surface = AgentSurface(platform=self.name, base_url=self.base_url)
         accessible = []
@@ -54,4 +103,6 @@ class GenericPlatform(BasePlatform):
             except Exception:
                 pass
         surface.endpoints = accessible
+        await self._discover_openapi_endpoints(surface)
+        await self._discover_graphql(surface)
         return surface

@@ -22,6 +22,9 @@ from .platforms.autogen import AutoGenPlatform
 from .platforms.n8n import N8nPlatform
 from .platforms.llamaindex import LlamaIndexPlatform
 from .platforms.crewai import CrewAIPlatform
+from .platforms.langgraph import LangGraphPlatform
+from .platforms.ollama import OllamaPlatform
+from .platforms.openai_compat import OpenAICompatPlatform
 from .modules.asi01_goal_hijack import GoalHijackModule
 from .modules.asi02_tool_misuse import ToolMisuseModule
 from .modules.asi03_privilege import PrivilegeAbuseModule
@@ -59,14 +62,17 @@ _ALL_MODULES = {
 }
 
 _PLATFORMS = {
-    "flowise":     FlowisePlatform,
-    "generic":     GenericPlatform,
-    "langflow":    LangflowPlatform,
-    "dify":        DifyPlatform,
-    "autogen":     AutoGenPlatform,
-    "n8n":         N8nPlatform,
-    "llamaindex":  LlamaIndexPlatform,
-    "crewai":      CrewAIPlatform,
+    "flowise":       FlowisePlatform,
+    "generic":       GenericPlatform,
+    "langflow":      LangflowPlatform,
+    "dify":          DifyPlatform,
+    "autogen":       AutoGenPlatform,
+    "n8n":           N8nPlatform,
+    "llamaindex":    LlamaIndexPlatform,
+    "crewai":        CrewAIPlatform,
+    "langgraph":     LangGraphPlatform,
+    "ollama":        OllamaPlatform,
+    "openai-compat": OpenAICompatPlatform,
 }
 
 _VALID_FORMATS = ("json", "sarif", "both", "table")
