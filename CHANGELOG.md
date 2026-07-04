@@ -1,5 +1,16 @@
 # Changelog
 
+## [RT-CONDOR-V03] — 2026-07-04 — ASI08 + ASI09 + ASI10 + SARIF output + batch scan
+
+- 3 nuevos módulos — Condor alcanza **10/10 módulos OWASP ASI** (cobertura completa):
+  - `cascading-failures` (ASI08): detecta endpoints de inferencia sin rate limiting, colas de tareas expuestas sin auth, y job management accesible sin autenticación
+  - `trust-exploitation` (ASI09): detecta system prompts expuestos sin auth, impersonación de humanos en prompts, y modificación de identidad de agente sin auth (PUT)
+  - `rogue-agents` (ASI10): detecta creación de agentes sin auth, registro de tools/plugins sin auth, y registro de webhooks/triggers sin auth
+- SARIF output: `--sarif` ahora escribe `report.sarif` (SARIF 2.1.0) junto a `report.json`; integrable con GitHub Code Scanning
+- Batch scan: `--targets <file>` escanea múltiples targets secuencialmente desde un archivo (`URL [platform]` por línea, `#` para comentarios)
+- `BasePlatform.put()` agregado para soportar probing de endpoints PUT/PATCH
+- 33 tests nuevos; suite total: **92/92 passing**
+
 ## [RT-CONDOR-V02] — 2026-07-04 — ASI06 + ASI07 + AutoGen adapter + false-positive fix
 
 - 2 nuevos módulos: `memory-poisoning` (ASI06) y `inter-agent` (ASI07) — Condor pasa a 7/10 módulos

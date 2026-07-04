@@ -25,7 +25,13 @@ condor/
   modules/asi03_privilege.py     — ASI03: unauth endpoint access
   modules/asi04_supply_chain.py  — ASI04: CVE via OSV.dev, poisoned descriptions
   modules/asi05_code_exec.py     — ASI05: eval/exec sinks, RCE endpoints
-  cli.py                — registro de _ALL_MODULES y _PLATFORMS
+  modules/asi06_memory_poisoning.py — ASI06: vectorstore access sin auth, doc injection
+  modules/asi07_inter_agent.py   — ASI07: inter-agent channels, agentflow enumeration
+  modules/asi08_cascading.py     — ASI08: rate limits ausentes, task queue expuesta
+  modules/asi09_trust.py         — ASI09: system prompt exposure, human impersonation
+  modules/asi10_rogue.py         — ASI10: agent/tool creation sin auth, webhooks
+  sarif.py              — to_sarif() → SARIF 2.1.0 (usado por cli.py --sarif)
+  cli.py                — registro de _ALL_MODULES y _PLATFORMS; --sarif; --targets
 ```
 
 ## Agregar un módulo nuevo
@@ -41,7 +47,7 @@ condor/
 3. Registrar en `condor/cli.py` → `_PLATFORMS`
 4. Tests en `tests/test_platform_nombre.py`
 
-## Módulos implementados (7/10)
+## Módulos implementados (10/10)
 
 | Módulo | ASI | Estado |
 |--------|-----|--------|
@@ -52,11 +58,16 @@ condor/
 | code-execution | ASI05 | ✅ |
 | memory-poisoning | ASI06 | ✅ |
 | inter-agent | ASI07 | ✅ |
-| — | ASI08–10 | backlog |
+| cascading-failures | ASI08 | ✅ |
+| trust-exploitation | ASI09 | ✅ |
+| rogue-agents | ASI10 | ✅ |
 
 ## Notas de implementación
 
-- `_is_api_response(r)` helper en ASI03/05/06/07: filtra respuestas HTML (SPA catch-all de Flowise 3.x/Next.js) para evitar falsos positivos. Flowise 3.x+ devuelve `200 text/html` para rutas desconocidas.
+- `_is_api_response(r)` helper en todos los módulos (ASI03–ASI10): filtra respuestas HTML (SPA catch-all de Flowise 3.x/Next.js) para evitar falsos positivos. Flowise 3.x+ devuelve `200 text/html` para rutas desconocidas. En tests, el mock `resp_404` debe tener `headers={"content-type": "text/html"}` para que el helper lo filtre correctamente.
+- `BasePlatform` expone `get`, `post`, `put`, `delete` — todos asientan que `self._client` esté abierto.
+- SARIF output: `condor/sarif.py` → `to_sarif(ScanResult, version) → dict`. `--sarif` escribe `report.sarif` junto a `report.json`.
+- Batch scan: `--targets <file>` — formato `URL [platform]` por línea, `#` para comentarios. Platform default: `generic`.
 - Flowise 2.x+ y 3.x fuerzan workspace auth por defecto (SQLite). Para E2E con findings: usar `flowiseai/flowise:1.8.x` o instancia sin credenciales de versión <2.x.
 
 ## Plataformas soportadas (5)

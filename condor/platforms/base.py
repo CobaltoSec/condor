@@ -41,6 +41,10 @@ class BasePlatform(ABC):
         assert self._client, "Use async context manager"
         return await self._client.post(path, **kwargs)
 
+    async def put(self, path: str, **kwargs: Any) -> httpx.Response:
+        assert self._client, "Use async context manager"
+        return await self._client.put(path, **kwargs)
+
     async def delete(self, path: str, **kwargs: Any) -> httpx.Response:
         assert self._client, "Use async context manager"
         return await self._client.delete(path, **kwargs)

@@ -25,6 +25,9 @@ from .modules.asi04_supply_chain import SupplyChainModule
 from .modules.asi05_code_exec import CodeExecutionModule
 from .modules.asi06_memory_poisoning import MemoryPoisoningModule
 from .modules.asi07_inter_agent import InterAgentModule
+from .modules.asi08_cascading import CascadingFailuresModule
+from .modules.asi09_trust import TrustExploitationModule
+from .modules.asi10_rogue import RogueAgentsModule
 
 app     = typer.Typer(name="condor", help="Agentic AI security testing framework (OWASP ASI Top 10)", add_completion=False)
 console = Console()
@@ -44,8 +47,11 @@ _ALL_MODULES = {
     "privilege-abuse":  PrivilegeAbuseModule,
     "supply-chain":     SupplyChainModule,
     "code-execution":   CodeExecutionModule,
-    "memory-poisoning": MemoryPoisoningModule,
-    "inter-agent":      InterAgentModule,
+    "memory-poisoning":    MemoryPoisoningModule,
+    "inter-agent":         InterAgentModule,
+    "cascading-failures":  CascadingFailuresModule,
+    "trust-exploitation":  TrustExploitationModule,
+    "rogue-agents":        RogueAgentsModule,
 }
 
 _PLATFORMS = {
@@ -59,16 +65,26 @@ _PLATFORMS = {
 
 @app.command()
 def scan(
-    url: Annotated[str, typer.Option("--url", "-u", help="Base URL of the agentic platform")],
+    url: Annotated[Optional[str], typer.Option("--url", "-u", help="Base URL of the agentic platform")] = None,
     platform: Annotated[str, typer.Option("--platform", "-p", help="Platform: flowise | generic")] = "generic",
     module: Annotated[Optional[str], typer.Option("--module", "-m", help="all | <module-name>")] = None,
     output_dir: Annotated[Optional[Path], typer.Option("--output-dir", "-o")] = None,
     timeout: Annotated[int, typer.Option("--timeout")] = 30,
     fail_on: Annotated[Optional[str], typer.Option("--fail-on", help="Exit 1 if findings at this severity or above")] = None,
     sarif: Annotated[bool, typer.Option("--sarif")] = False,
+    targets: Annotated[Optional[Path], typer.Option("--targets", "-t", help="File with one URL [platform] per line")] = None,
 ) -> None:
     """Scan an agentic AI platform for security vulnerabilities."""
-    asyncio.run(_scan(url, platform, module, output_dir, timeout, fail_on, sarif))
+    if url and targets:
+        console.print("[red]--url and --targets are mutually exclusive[/red]")
+        raise typer.Exit(1)
+    if not url and not targets:
+        console.print("[red]Provide --url <URL> or --targets <file>[/red]")
+        raise typer.Exit(1)
+    if targets:
+        asyncio.run(_scan_batch(targets, platform, module, output_dir, timeout, fail_on, sarif))
+    else:
+        asyncio.run(_scan(url, platform, module, output_dir, timeout, fail_on, sarif))
 
 
 async def _scan(
@@ -143,8 +159,15 @@ async def _scan(
     report_path = output_dir / "report.json"
     report_path.write_text(result.model_dump_json(indent=2), encoding="utf-8")
 
+    if sarif:
+        from .sarif import to_sarif
+        sarif_path = output_dir / "report.sarif"
+        sarif_path.write_text(json.dumps(to_sarif(result, __version__), indent=2), encoding="utf-8")
+
     _print_summary(result)
-    console.print(f"\nReport: {report_path}")
+    console.print(f"\nReport : {report_path}")
+    if sarif:
+        console.print(f"SARIF  : {output_dir / 'report.sarif'}")
 
     if fail_on:
         try:
@@ -155,6 +178,60 @@ async def _scan(
         tidx = _SEVERITY_ORDER.index(threshold)
         if any(_SEVERITY_ORDER.index(f.severity) <= tidx for f in findings):
             raise typer.Exit(1)
+
+
+def _parse_targets_file(path: Path) -> list[tuple[str, str]]:
+    """Parse a targets file. Each line: URL [platform]. Lines starting with # are ignored."""
+    targets = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(None, 1)
+        url_part = parts[0]
+        plat_part = parts[1] if len(parts) > 1 else "generic"
+        targets.append((url_part, plat_part))
+    return targets
+
+
+async def _scan_batch(
+    targets_file: Path,
+    default_platform: str,
+    module_filter: str | None,
+    output_dir: Path | None,
+    timeout: int,
+    fail_on: str | None,
+    sarif: bool,
+) -> None:
+    try:
+        targets = _parse_targets_file(targets_file)
+    except Exception as e:
+        console.print(f"[red]Could not read targets file: {e}[/red]")
+        raise typer.Exit(1)
+
+    if not targets:
+        console.print("[red]No targets found in file[/red]")
+        raise typer.Exit(1)
+
+    if output_dir is None:
+        ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        output_dir = Path("condor-sessions") / f"batch-{ts}"
+
+    console.print(f"\n[bold cyan]Condor v{__version__}[/bold cyan]  Batch scan — {len(targets)} target(s)")
+    console.print()
+
+    had_failure = False
+    for url, platform_name in targets:
+        safe_name = url.replace("://", "_").replace("/", "_").replace(":", "_").strip("_")
+        target_dir = output_dir / safe_name
+        try:
+            await _scan(url, platform_name, module_filter, target_dir, timeout, fail_on, sarif)
+        except SystemExit as exc:
+            if exc.code not in (0, None):
+                had_failure = True
+
+    if had_failure:
+        raise typer.Exit(1)
 
 
 def _print_summary(result: ScanResult) -> None:
