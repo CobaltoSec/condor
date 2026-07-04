@@ -2,10 +2,10 @@
 
 ## Bloque activo
 
-### RT-CONDOR-V01 — Platform Coverage + ASI04 + ASI02
+### RT-CONDOR-V02 — ASI06 + ASI07 + E2E Flowise + AutoGen adapter
 
-**Objetivo:** Ampliar cobertura de plataformas (Langflow, Dify) e implementar los
-siguientes 2 módulos ASI priorizados. Dejar Condor con 5/10 módulos operativos.
+**Objetivo:** Implementar los 2 módulos de mayor impacto diferencial (Memory Poisoning e Inter-Agent),
+cerrar el E2E diferido contra Flowise, y agregar el adapter de AutoGen Studio.
 
 **Talla:** M (3–4 sesiones)
 
@@ -13,26 +13,26 @@ siguientes 2 módulos ASI priorizados. Dejar Condor con 5/10 módulos operativos
 
 | ID | Descripción | Criterio de completitud |
 |----|-------------|------------------------|
-| D1 | Langflow platform adapter | `condor scan --platform langflow` enumera flows y tools |
-| D2 | Dify platform adapter | `condor scan --platform dify` enumera apps y datasets |
-| D3 | Módulo ASI04 `supply-chain` | Detecta plugins con CVEs via OSV.dev; verifica tool descriptions |
-| D4 | Módulo ASI02 `tool-misuse` | Enumera tools, prueba path traversal y SSRF por tool |
-| D5 | E2E scan contra Flowise local | `condor scan` arroja ≥1 finding real en instancia de laboratorio |
+| D1 | E2E scan contra Flowise local | `condor scan` arroja ≥1 finding real en instancia de laboratorio |
+| D2 | Módulo ASI06 `memory-poisoning` | Detecta vectorstores accesibles sin auth + prueba inyección en documentos |
+| D3 | Módulo ASI07 `inter-agent` | Detecta endpoints de comunicación inter-agente expuestos; prueba escalación via sub-agents |
+| D4 | AutoGen Studio adapter | `condor scan --platform autogen` enumera teams y tools |
 
 **Dependencias:**
-- Flowise corriendo en lab (LXC 200 / Docker local) para D5
-- OSV.dev API sin auth — sin costo
+- D1: Flowise corriendo localmente (Docker: `docker run -p 3000:3000 flowiseai/flowise`)
+- D2: Research del API de vectorstore en Flowise/Langflow (Chroma, Pinecone, Weaviate endpoints)
+- D3: Research de AutoGen Studio API (endpoints de team execution e inter-agent messaging)
+- D4: AutoGen Studio corriendo para pruebas manuales
 
 **Notas:**
-- D3 reutiliza lógica de `sectors/red-team/corvus/corvus/modules/static/osv_supply_chain.py`
-- D4: el punto de entrada es la enumeración de tools via `flowise.enumerate()` ya implementada
-- AutoGen Studio adapter es V02 (requiere más research de su API)
+- D1 es carry-over de RT-CONDOR-V01; levantar Flowise con `docker run` antes de la sesión
+- ASI06 es alto valor para el case study — las vectorstores sin auth son finding frecuente
+- ASI07 requiere instancia con multi-agent flow configurado; documentar en docs/ si no hay acceso
 
 ---
 
 ## Backlog
 
-- **RT-CONDOR-V02** — ASI06 (Memory Poisoning) + ASI07 (Inter-Agent) + AutoGen adapter
 - **RT-CONDOR-V03** — ASI08/ASI09/ASI10 + SARIF output + batch scan
 - **RT-CONDOR-CFP** — Case study con findings reales + CFP (post-Ekoparty o siguiente conf)
 - **RT-CONDOR-PYPI** — Publicar `cobaltosec-condor` en PyPI + repo público GitHub

@@ -1,5 +1,14 @@
 # Changelog
 
+## [RT-CONDOR-V01] — 2026-07-04 — Platform Coverage + ASI04 + ASI02
+
+- 2 nuevos módulos: `tool-misuse` (ASI02) y `supply-chain` (ASI04) — Condor pasa a 5/10 módulos operativos
+- ASI02: detecta path traversal y SSRF via parámetros de tool, credenciales expuestas en tool config, source code exposure
+- ASI04: CVE check por tool via OSV.dev API, detección de tool descriptions con payloads de inyección
+- 2 nuevos platform adapters: `langflow` y `dify` — Condor cubre 4 plataformas (flowise, generic, langflow, dify)
+- 16 tests nuevos; suite total: 38/38 passing
+- D5 (E2E contra Flowise local) diferido — Flowise no disponible en esta sesión
+
 ## [RT-CONDOR-BOOTSTRAP-01] — 2026-07-04 — Research: OWASP ASI Top 10
 
 - Investigación completa del OWASP Top 10 for Agentic Applications 2026 (ASI01–ASI10)
