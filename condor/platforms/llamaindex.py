@@ -1,33 +1,30 @@
-"""AutoGen Studio platform adapter."""
+"""LlamaIndex platform adapter — llama-agents / llama-index-server (FastAPI)."""
 from __future__ import annotations
 
 from .base import BasePlatform
 from ..core.models import AgentSurface
 
 _SENSITIVE_ENDPOINTS = [
-    "/api/agents",
-    "/api/teams",
-    "/api/sessions",
-    "/api/runs",
-    "/api/models",
-    "/api/tools",
-    "/api/skills",
+    "/docs",
+    "/openapi.json",
     "/api/v1/agents",
-    "/api/v1/teams",
-    "/api/v1/sessions",
-    "/api/v1/runs",
-    "/api/v1/models",
     "/api/v1/tools",
+    "/api/agents",
+    "/api/tools",
+    "/queue/tasks",
+    "/queue/services",
+    "/api/v1/chat",
+    "/api/chat",
 ]
 
-_HEALTH_ENDPOINTS  = ["/healthz", "/api/version", "/api/v1/version", "/"]
-_VERSION_ENDPOINTS = ["/api/version", "/api/v1/version"]
-_TEAMS_ENDPOINTS   = ["/api/teams", "/api/v1/teams"]
-_TOOLS_ENDPOINTS   = ["/api/tools", "/api/v1/tools", "/api/skills"]
+_HEALTH_ENDPOINTS   = ["/health", "/healthz", "/"]
+_VERSION_ENDPOINTS  = ["/api/v1/version", "/openapi.json"]
+_AGENT_ENDPOINTS    = ["/api/v1/agents", "/api/agents", "/agents"]
+_TOOL_ENDPOINTS     = ["/api/v1/tools", "/api/tools", "/tools"]
 
 
-class AutoGenPlatform(BasePlatform):
-    name = "autogen"
+class LlamaIndexPlatform(BasePlatform):
+    name = "llamaindex"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -35,9 +32,9 @@ class AutoGenPlatform(BasePlatform):
             self._headers["Authorization"] = f"Bearer {self._api_key}"
 
     async def health_check(self) -> bool:
-        for endpoint in _HEALTH_ENDPOINTS:
+        for ep in _HEALTH_ENDPOINTS:
             try:
-                r = await self.get(endpoint)
+                r = await self.get(ep)
                 if r.status_code < 500:
                     return True
             except Exception:
@@ -47,45 +44,48 @@ class AutoGenPlatform(BasePlatform):
     async def enumerate(self) -> AgentSurface:
         surface = AgentSurface(platform=self.name, base_url=self.base_url)
 
-        # Version
-        for ep in _VERSION_ENDPOINTS:
+        # Version — try dedicated endpoint, then extract from OpenAPI spec
+        try:
+            r = await self.get("/api/v1/version")
+            if r.status_code == 200:
+                surface.version = r.json().get("version")
+        except Exception:
+            pass
+        if not surface.version:
             try:
-                r = await self.get(ep)
+                r = await self.get("/openapi.json")
                 if r.status_code == 200:
-                    data = r.json()
-                    surface.version = data.get("version") or data.get("app_version")
-                    if surface.version:
-                        break
+                    surface.version = r.json().get("info", {}).get("version")
             except Exception:
                 pass
 
-        # Auth detection + team enumeration (teams = "flows" in AutoGen)
-        for ep in _TEAMS_ENDPOINTS:
+        # Auth detection + agent enumeration
+        for ep in _AGENT_ENDPOINTS:
             try:
                 r = await self.get(ep)
                 surface.auth_required = r.status_code in (401, 403)
                 if r.status_code == 200:
                     data = r.json()
-                    teams = data.get("data", data) if isinstance(data, dict) else data
-                    surface.flows = teams if isinstance(teams, list) else []
+                    agents = data.get("agents") or data.get("data", data) if isinstance(data, dict) else data
+                    surface.flows = agents if isinstance(agents, list) else []
                 break
             except Exception:
                 pass
 
-        # Tools/skills
-        for ep in _TOOLS_ENDPOINTS:
+        # Tool enumeration
+        for ep in _TOOL_ENDPOINTS:
             try:
                 r = await self.get(ep)
                 if r.status_code == 200:
                     data = r.json()
-                    tools = data.get("data", data) if isinstance(data, dict) else data
+                    tools = data.get("tools") or data.get("data", data) if isinstance(data, dict) else data
                     surface.tools = tools if isinstance(tools, list) else []
                     if surface.tools:
                         break
             except Exception:
                 pass
 
-        # Discovered endpoints (non-404 responses)
+        # Discovered sensitive endpoints (non-404)
         accessible = []
         for ep in _SENSITIVE_ENDPOINTS:
             try:

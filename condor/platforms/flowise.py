@@ -1,6 +1,8 @@
 """Flowise platform adapter — REST API v1."""
 from __future__ import annotations
 
+import base64
+
 from .base import BasePlatform
 from ..core.models import AgentSurface
 
@@ -19,6 +21,14 @@ _SENSITIVE_ENDPOINTS = [
 
 class FlowisePlatform(BasePlatform):
     name = "flowise"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self._api_key:
+            self._headers["Authorization"] = f"Bearer {self._api_key}"
+        elif self._username and self._password:
+            creds = base64.b64encode(f"{self._username}:{self._password}".encode()).decode()
+            self._headers["Authorization"] = f"Basic {creds}"
 
     async def health_check(self) -> bool:
         try:

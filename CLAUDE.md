@@ -15,10 +15,13 @@ Agentic AI security scanner — OWASP ASI Top 10. Análogo a Corvus pero para pl
 condor/
   core/models.py        — Finding, Severity, OWASPCategory, AgentSurface, ScanResult
   platforms/base.py     — BasePlatform (httpx async context manager)
-  platforms/flowise.py  — Flowise REST API v1
-  platforms/generic.py  — Generic HTTP probe
-  platforms/langflow.py — Langflow REST API v1
-  platforms/dify.py     — Dify console API
+  platforms/flowise.py    — Flowise REST API v1
+  platforms/generic.py    — Generic HTTP probe
+  platforms/langflow.py   — Langflow REST API v1
+  platforms/dify.py       — Dify console API
+  platforms/n8n.py        — n8n workflow automation
+  platforms/llamaindex.py — LlamaIndex agents server (FastAPI)
+  platforms/crewai.py     — CrewAI serve (FastAPI)
   modules/base.py       — BaseModule (abstracto, run() → list[Finding])
   modules/asi01_goal_hijack.py   — ASI01: prompt injection
   modules/asi02_tool_misuse.py   — ASI02: path traversal, SSRF, cred exposure
@@ -30,8 +33,8 @@ condor/
   modules/asi08_cascading.py     — ASI08: rate limits ausentes, task queue expuesta
   modules/asi09_trust.py         — ASI09: system prompt exposure, human impersonation
   modules/asi10_rogue.py         — ASI10: agent/tool creation sin auth, webhooks
-  sarif.py              — to_sarif() → SARIF 2.1.0 (usado por cli.py --sarif)
-  cli.py                — registro de _ALL_MODULES y _PLATFORMS; --sarif; --targets
+  sarif.py              — to_sarif() → SARIF 2.1.0 (usado por cli.py --format sarif|both)
+  cli.py                — registro de _ALL_MODULES y _PLATFORMS; --format; --exclude-module; --concurrency; --api-key; --targets
 ```
 
 ## Agregar un módulo nuevo
@@ -66,10 +69,17 @@ condor/
 
 - `_is_api_response(r)` helper en todos los módulos (ASI03–ASI10): filtra respuestas HTML (SPA catch-all de Flowise 3.x/Next.js) para evitar falsos positivos. Flowise 3.x+ devuelve `200 text/html` para rutas desconocidas. En tests, el mock `resp_404` debe tener `headers={"content-type": "text/html"}` para que el helper lo filtre correctamente.
 - `BasePlatform` expone `get`, `post`, `put`, `delete` — todos asientan que `self._client` esté abierto.
-- SARIF output: `condor/sarif.py` → `to_sarif(ScanResult, version) → dict`. `--sarif` escribe `report.sarif` junto a `report.json`.
-- Batch scan: `--targets <file>` — formato `URL [platform]` por línea, `#` para comentarios. Platform default: `generic`.
+- Auth: `BasePlatform.__init__` acepta `api_key`, `username`, `password`. Plataformas construyen headers estáticos en `__init__`; Langflow y Dify hacen pre-auth POST en `_authenticate()` (hook llamado en `__aenter__`).
+- CLI auth flags: `--api-key` / `--username` / `--password` — threaded a `_scan()` y a la construcción del platform.
+- Output format: `--format json|sarif|both|table` (reemplaza `--sarif`). `both` escribe `report.json` + `report.sarif`.
+- Batch scan concurrente: `--targets <file>` con `--concurrency N` (default 5). `asyncio.gather` + `asyncio.Semaphore`. `_scan()` acepta `verbose=False` para suprimir output inline en batch.
+- Progress bar: `rich.Progress` en loop de módulos y en batch scan (outer progress).
+- `--exclude-module` / `-x` (repeatable): skip módulos específicos con warning si nombre desconocido.
 - Flowise 2.x+ y 3.x fuerzan workspace auth por defecto (SQLite). Para E2E con findings: usar `flowiseai/flowise:1.8.x` o instancia sin credenciales de versión <2.x.
+- ASI01: detección semántica (compliance phrases) con confidence 60, además de markers exactos (90). Soporta Dify y Langflow endpoints. 8 payloads incluyendo base64, prompt continuation, Unicode, tool-result simulation.
+- ASI02: payloads URL-encoded + double-encoded para path traversal; GCP/Azure IMDS + IPv6 para SSRF. Indicadores extendidos.
+- ASI05: OS command probe activo (`child_process.execSync('id')` para JS, `subprocess.check_output(['id'])` para Python). Output confirmation para AutoGen y Langflow. Blind timing probe para entornos non-reflective.
 
-## Plataformas soportadas (5)
+## Plataformas soportadas (8)
 
-`flowise` · `generic` · `langflow` · `dify` · `autogen`
+`flowise` · `generic` · `langflow` · `dify` · `autogen` · `n8n` · `llamaindex` · `crewai`

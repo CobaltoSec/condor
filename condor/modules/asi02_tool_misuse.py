@@ -6,19 +6,46 @@ from ..core.models import AgentSurface, Finding, OWASPCategory, Severity
 from ..platforms.base import BasePlatform
 
 _PATH_TRAVERSAL_PAYLOADS = [
+    # Unix classic
     "../../../../etc/passwd",
     "../../../../etc/shadow",
+    # Unix soft targets (always readable)
+    "../../../../etc/hosts",
+    "../../../../proc/self/environ",
+    # Absolute paths
+    "/etc/passwd",
+    "/etc/hosts",
+    # URL-encoded (bypass naive sanitizers)
+    "%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd",
+    # Double URL-encoded
+    "%252e%252e%252f%252e%252e%252f%252e%252e%252fetc%252fpasswd",
+    # Windows
     r"C:\Windows\win.ini",
     r"..\..\..\Windows\win.ini",
 ]
-_PATH_TRAVERSAL_INDICATORS = ["root:", "daemon:", "[extensions]", "[fonts]", "nobody:"]
+_PATH_TRAVERSAL_INDICATORS = [
+    "root:", "daemon:", "[extensions]", "[fonts]", "nobody:",
+    "localhost", "127.0.0.1",  # /etc/hosts
+    "PATH=", "HOME=",           # /proc/self/environ
+]
 
 _SSRF_PAYLOADS = [
+    # AWS IMDS
     "http://169.254.169.254/latest/meta-data/",
     "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+    # GCP metadata
+    "http://metadata.google.internal/computeMetadata/v1/",
+    # Azure IMDS
+    "http://169.254.169.254/metadata/instance?api-version=2021-02-01",
+    # Loopback
     "http://127.0.0.1:22",
+    # IPv6 loopback
+    "http://[::1]:22/",
 ]
-_SSRF_CONFIRMED_INDICATORS = ["ami-id", "instance-id", "ssh-", "OpenSSH", "iam/"]
+_SSRF_CONFIRMED_INDICATORS = [
+    "ami-id", "instance-id", "ssh-", "OpenSSH", "iam/",
+    "computeMetadata", "azureMetadata", "osProfile",
+]
 
 # Fields in tool schemas that accept path or URL inputs
 _PATH_FIELDS = {"path", "filepath", "file", "filename", "dir", "directory"}
@@ -41,13 +68,11 @@ def _tool_name(tool: dict) -> str:
 def _schema_fields(tool: dict) -> set[str]:
     """Extract field names from tool inputParams or schema.properties."""
     fields: set[str] = set()
-    # Flowise inputParams style: list of {name, type, ...}
     params = tool.get("inputParams") or []
     if isinstance(params, list):
         for p in params:
             if isinstance(p, dict) and p.get("name"):
                 fields.add(p["name"].lower())
-    # JSON schema style
     props = (tool.get("schema") or {}).get("properties") or {}
     if isinstance(props, dict):
         fields.update(k.lower() for k in props)

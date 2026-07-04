@@ -1,5 +1,15 @@
 # Changelog
 
+## [RT-CONDOR-V04] — 2026-07-04 — SCALE + AUTH + DEPTH + PLATFORMS
+
+- **CLI (SCALE)**: `--format json|sarif|both|table` reemplaza `--sarif`; `--exclude-module` (repeatable, warn en nombre desconocido); `--concurrency N` para batch scan (`asyncio.Semaphore` + `gather`); progress bar `rich.Progress` en loop de módulos y en batch; `verbose=False` en batch para suprimir output inline
+- **Auth (AUTH)**: `--api-key` / `--username` / `--password` threadeados hasta la construcción del platform; `BasePlatform._authenticate()` hook (llamado en `__aenter__`); Flowise/Generic: header estático Bearer/Basic; Langflow: `x-api-key` + pre-auth POST `/api/v1/login` → JWT; Dify: Bearer + pre-auth POST `/console/api/login` → token; AutoGen/n8n/LlamaIndex/CrewAI: Bearer
+- **Depth ASI01**: 8 payloads (+base64, prompt-continuation, Unicode, tool-result-simulation); detección semántica `_COMPLIANCE_PHRASES` (confidence 60) además de markers exactos (90); soporta endpoints Dify y Langflow además de Flowise
+- **Depth ASI02**: 10 payloads path traversal (+URL-encoded, double-encoded, absolute paths, `/etc/hosts`, `/proc/self/environ`); 6 payloads SSRF (+GCP metadata, Azure IMDS, IPv6 loopback); indicadores de confirmación extendidos
+- **Depth ASI05**: OS command probes activos (`child_process.execSync('id')` JS, `subprocess.check_output(['id'])` Python); output confirmation para AutoGen (`_PATH_INDICATORS`) y Langflow (`condor` en respuesta); blind timing probe (`setTimeout 300ms`, elapsed ≥ 0.25s → confidence 50)
+- **3 nuevos platform adapters**: `n8n` (X-N8N-API-KEY, `/api/v1/workflows`, credential enumeration), `llamaindex` (FastAPI `/api/v1/agents`, versión desde OpenAPI spec), `crewai` (`crewai serve`, crews+agents, versión desde `/openapi.json`)
+- `tests/test_cli.py` nuevo (14 tests); 3 nuevos `tests/test_platform_*.py` (23 tests); suite total: **128/128 passing**
+
 ## [RT-CONDOR-V03] — 2026-07-04 — ASI08 + ASI09 + ASI10 + SARIF output + batch scan
 
 - 3 nuevos módulos — Condor alcanza **10/10 módulos OWASP ASI** (cobertura completa):

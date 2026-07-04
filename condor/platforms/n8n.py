@@ -1,43 +1,37 @@
-"""AutoGen Studio platform adapter."""
+"""n8n platform adapter — workflow automation with AI nodes."""
 from __future__ import annotations
 
 from .base import BasePlatform
 from ..core.models import AgentSurface
 
 _SENSITIVE_ENDPOINTS = [
-    "/api/agents",
-    "/api/teams",
-    "/api/sessions",
-    "/api/runs",
-    "/api/models",
-    "/api/tools",
-    "/api/skills",
-    "/api/v1/agents",
-    "/api/v1/teams",
-    "/api/v1/sessions",
-    "/api/v1/runs",
-    "/api/v1/models",
-    "/api/v1/tools",
+    "/api/v1/credentials",
+    "/api/v1/executions",
+    "/rest/settings",
+    "/rest/activeWorkflows",
+    "/api/v1/workflows",
+    "/api/v1/users",
+    "/rest/owner",
 ]
 
-_HEALTH_ENDPOINTS  = ["/healthz", "/api/version", "/api/v1/version", "/"]
-_VERSION_ENDPOINTS = ["/api/version", "/api/v1/version"]
-_TEAMS_ENDPOINTS   = ["/api/teams", "/api/v1/teams"]
-_TOOLS_ENDPOINTS   = ["/api/tools", "/api/v1/tools", "/api/skills"]
+_HEALTH_ENDPOINTS   = ["/healthz", "/rest/settings", "/"]
+_VERSION_ENDPOINTS  = ["/api/v1/version"]
+_WORKFLOW_ENDPOINTS = ["/api/v1/workflows"]
+_CRED_ENDPOINTS     = ["/api/v1/credentials"]
 
 
-class AutoGenPlatform(BasePlatform):
-    name = "autogen"
+class N8nPlatform(BasePlatform):
+    name = "n8n"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self._api_key:
-            self._headers["Authorization"] = f"Bearer {self._api_key}"
+            self._headers["X-N8N-API-KEY"] = self._api_key
 
     async def health_check(self) -> bool:
-        for endpoint in _HEALTH_ENDPOINTS:
+        for ep in _HEALTH_ENDPOINTS:
             try:
-                r = await self.get(endpoint)
+                r = await self.get(ep)
                 if r.status_code < 500:
                     return True
             except Exception:
@@ -53,39 +47,39 @@ class AutoGenPlatform(BasePlatform):
                 r = await self.get(ep)
                 if r.status_code == 200:
                     data = r.json()
-                    surface.version = data.get("version") or data.get("app_version")
+                    surface.version = data.get("version")
                     if surface.version:
                         break
             except Exception:
                 pass
 
-        # Auth detection + team enumeration (teams = "flows" in AutoGen)
-        for ep in _TEAMS_ENDPOINTS:
+        # Auth detection + workflow enumeration
+        for ep in _WORKFLOW_ENDPOINTS:
             try:
                 r = await self.get(ep)
                 surface.auth_required = r.status_code in (401, 403)
                 if r.status_code == 200:
                     data = r.json()
-                    teams = data.get("data", data) if isinstance(data, dict) else data
-                    surface.flows = teams if isinstance(teams, list) else []
+                    # n8n returns {"data": [...], "nextCursor": null}
+                    workflows = data.get("data", data) if isinstance(data, dict) else data
+                    surface.flows = workflows if isinstance(workflows, list) else []
                 break
             except Exception:
                 pass
 
-        # Tools/skills
-        for ep in _TOOLS_ENDPOINTS:
+        # Credential types (not values — but listing them is still an info leak)
+        for ep in _CRED_ENDPOINTS:
             try:
                 r = await self.get(ep)
                 if r.status_code == 200:
                     data = r.json()
-                    tools = data.get("data", data) if isinstance(data, dict) else data
-                    surface.tools = tools if isinstance(tools, list) else []
-                    if surface.tools:
-                        break
+                    creds = data.get("data", data) if isinstance(data, dict) else data
+                    surface.tools = creds if isinstance(creds, list) else []
+                    break
             except Exception:
                 pass
 
-        # Discovered endpoints (non-404 responses)
+        # Discovered sensitive endpoints (non-404)
         accessible = []
         for ep in _SENSITIVE_ENDPOINTS:
             try:
