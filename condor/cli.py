@@ -75,7 +75,7 @@ _PLATFORMS = {
     "openai-compat": OpenAICompatPlatform,
 }
 
-_VALID_FORMATS = ("json", "sarif", "both", "table")
+_VALID_FORMATS = ("json", "sarif", "both", "table", "html", "junit")
 
 
 @app.command()
@@ -95,21 +95,39 @@ def scan(
     password: Annotated[Optional[str], typer.Option("--password", help="Password for basic/login auth", envvar="CONDOR_PASSWORD")] = None,
     proxy: Annotated[Optional[str], typer.Option("--proxy", help="HTTP/S proxy URL (e.g. http://127.0.0.1:8080)", envvar="CONDOR_PROXY")] = None,
     insecure: Annotated[bool, typer.Option("--insecure", help="Skip TLS certificate verification")] = False,
+    stdout: Annotated[bool, typer.Option("--stdout", help="Emit JSON to stdout (suppresses progress bar and summary)")] = False,
+    min_severity: Annotated[Optional[str], typer.Option("--min-severity", help="Only show findings at this severity or above")] = None,
+    baseline: Annotated[Optional[Path], typer.Option("--baseline", help="Baseline file to suppress known findings")] = None,
+    save_baseline: Annotated[Optional[Path], typer.Option("--save-baseline", help="Save findings as new baseline file")] = None,
 ) -> None:
     """Scan an agentic AI platform for security vulnerabilities."""
     if url and targets:
         console.print("[red]--url and --targets are mutually exclusive[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
     if not url and not targets:
         console.print("[red]Provide --url <URL> or --targets <file>[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
     if fmt not in _VALID_FORMATS:
         console.print(f"[red]Invalid --format '{fmt}'. Choose from: {', '.join(_VALID_FORMATS)}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
+    if min_severity and min_severity not in [s.value for s in Severity]:
+        console.print(f"[red]Invalid --min-severity '{min_severity}'. Choose from: critical, high, medium, low, info[/red]")
+        raise typer.Exit(2)
     if targets:
-        asyncio.run(_scan_batch(targets, platform, module, output_dir, timeout, fail_on, fmt, exclude_module, concurrency, api_key, username, password, proxy, not insecure))
+        asyncio.run(_scan_batch(targets, platform, module, output_dir, timeout, fail_on, fmt, exclude_module, concurrency, api_key, username, password, proxy, not insecure, stdout_mode=stdout, min_severity=min_severity, baseline_path=baseline, save_baseline_path=save_baseline))
     else:
-        asyncio.run(_scan(url, platform, module, output_dir, timeout, fail_on, fmt, exclude_module, api_key=api_key, username=username, password=password, proxy=proxy, verify_ssl=not insecure))
+        asyncio.run(_scan(url, platform, module, output_dir, timeout, fail_on, fmt, exclude_module, api_key=api_key, username=username, password=password, proxy=proxy, verify_ssl=not insecure, stdout_mode=stdout, min_severity=min_severity, baseline_path=baseline, save_baseline_path=save_baseline))
+
+
+def _dedup_findings(findings: list) -> list:
+    seen: set[tuple] = set()
+    out = []
+    for f in findings:
+        key = (f.owasp_id, f.title, f.endpoint)
+        if key not in seen:
+            seen.add(key)
+            out.append(f)
+    return out
 
 
 async def _scan(
@@ -128,11 +146,15 @@ async def _scan(
     password: str | None = None,
     proxy: str | None = None,
     verify_ssl: bool = True,
+    stdout_mode: bool = False,
+    min_severity: str | None = None,
+    baseline_path: Path | None = None,
+    save_baseline_path: Path | None = None,
 ) -> None:
     platform_cls = _PLATFORMS.get(platform_name)
     if not platform_cls:
         console.print(f"[red]Unknown platform: {platform_name}. Available: {', '.join(_PLATFORMS)}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     if output_dir is None:
         ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -146,7 +168,7 @@ async def _scan(
         active = [(module_filter, _ALL_MODULES[module_filter])]
     else:
         console.print(f"[red]Unknown module: {module_filter}. Available: {', '.join(_ALL_MODULES)}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     # Apply exclusions
     if exclude_module:
@@ -155,7 +177,8 @@ async def _scan(
             console.print(f"[yellow]Warning: unknown module(s) in --exclude-module: {', '.join(unknown)}[/yellow]")
         active = [(n, cls) for n, cls in active if n not in exclude_module]
 
-    if verbose:
+    show_ui = verbose and not stdout_mode
+    if show_ui:
         console.print(f"\n[bold cyan]Condor v{__version__}[/bold cyan]  Agentic AI Security Scanner")
         console.print(f"Target   : {url}")
         console.print(f"Platform : {platform_name}")
@@ -163,19 +186,18 @@ async def _scan(
         console.print()
 
     plat = platform_cls(url, timeout=timeout, api_key=api_key, username=username, password=password, proxy=proxy, verify_ssl=verify_ssl)
-    findings = []
     modules_run = []
     started_at = datetime.datetime.now(datetime.timezone.utc)
 
     async with plat:
         if not await plat.health_check():
             console.print(f"[red]Platform not reachable at {url}[/red]")
-            raise typer.Exit(1)
+            raise typer.Exit(2)
 
-        if verbose:
+        if show_ui:
             console.print("[bold]Enumerating surface...[/bold]")
         surface = await plat.enumerate()
-        if verbose:
+        if show_ui:
             console.print(f"  Flows    : {len(surface.flows)}")
             console.print(f"  Tools    : {len(surface.tools)}")
             console.print(f"  Auth     : {'required' if surface.auth_required else '[yellow]not required[/yellow]'}")
@@ -183,28 +205,48 @@ async def _scan(
                 console.print(f"  Version  : {surface.version}")
             console.print()
 
+        all_findings: list = []
+        modules_run = [n for n, _ in active]
+
         with Progress(
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
             MofNCompleteColumn(),
             TimeElapsedColumn(),
             console=console,
-            transient=False,
+            transient=stdout_mode,
+            disable=stdout_mode,
         ) as progress:
-            task = progress.add_task("Scanning...", total=len(active))
-            for name, mod_cls in active:
+            prog_task = progress.add_task("Scanning...", total=len(active))
+
+            async def _run_one(name: str, mod_cls) -> list:
                 mod = mod_cls()
-                progress.update(task, description=f"[bold yellow][{mod.owasp_id.value}][/bold yellow] {mod.description}")
                 results = await mod.run(surface, plat)
-                findings.extend(results)
-                modules_run.append(name)
-                if verbose and results:
+                progress.advance(prog_task)
+                if show_ui and results:
                     for f in results:
                         color = _SEV_COLOR.get(f.severity.value, "white")
                         progress.console.print(
                             f"  [{color}][{f.severity.value.upper()}][/{color}] {f.title} [dim]({f.confidence}%)[/dim]"
                         )
-                progress.advance(task)
+                return results
+
+            gathered = await asyncio.gather(*[_run_one(n, cls) for n, cls in active])
+            for batch in gathered:
+                all_findings.extend(batch)
+
+    findings = _dedup_findings(all_findings)
+
+    # Apply baseline suppression
+    if baseline_path:
+        from .baseline import load_baseline, apply_baseline
+        bl = load_baseline(baseline_path)
+        result_pre = ScanResult(target=url, platform=platform_name, findings=findings, modules_run=modules_run, surface=surface)
+        result_post = apply_baseline(result_pre, bl)
+        findings = result_post.findings
+        suppressed = result_post.surface.raw_info.get("suppressed_count", 0) if result_post.surface else 0
+        if show_ui and suppressed:
+            console.print(f"[dim]Suppressed {suppressed} baseline finding(s)[/dim]")
 
     finished_at = datetime.datetime.now(datetime.timezone.utc)
     result = ScanResult(
@@ -218,29 +260,63 @@ async def _scan(
         duration_seconds=(finished_at - started_at).total_seconds(),
     )
 
+    # Save baseline if requested
+    if save_baseline_path:
+        from .baseline import save_baseline
+        save_baseline(result, save_baseline_path)
+        if show_ui:
+            console.print(f"[green]Baseline saved: {save_baseline_path}[/green]")
+
+    # Apply min-severity filter for display/output
+    displayed = result
+    if min_severity:
+        sev_obj = Severity(min_severity)
+        tidx = _SEVERITY_ORDER.index(sev_obj)
+        filtered = [f for f in findings if _SEVERITY_ORDER.index(f.severity) <= tidx]
+        displayed = ScanResult(target=url, platform=platform_name, findings=filtered, modules_run=modules_run, surface=surface,
+                               started_at=started_at, finished_at=finished_at, duration_seconds=result.duration_seconds)
+
     # Write outputs
     report_path = output_dir / "report.json"
     sarif_path  = output_dir / "report.sarif"
+    html_path   = output_dir / "report.html"
+    junit_path  = output_dir / "report.xml"
 
-    if fmt in ("json", "both"):
-        report_path.write_text(result.model_dump_json(indent=2), encoding="utf-8")
-    if fmt in ("sarif", "both"):
-        from .sarif import to_sarif
-        sarif_path.write_text(json.dumps(to_sarif(result, __version__), indent=2), encoding="utf-8")
+    if stdout_mode:
+        import sys
+        sys.stdout.write(displayed.model_dump_json(indent=2))
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+    else:
+        if fmt in ("json", "both"):
+            report_path.write_text(displayed.model_dump_json(indent=2), encoding="utf-8")
+        if fmt in ("sarif", "both"):
+            from .sarif import to_sarif
+            sarif_path.write_text(json.dumps(to_sarif(displayed, __version__), indent=2), encoding="utf-8")
+        if fmt == "html":
+            from .html_report import to_html
+            html_path.write_text(to_html(displayed, __version__), encoding="utf-8")
+        if fmt == "junit":
+            from .junit_report import to_junit
+            junit_path.write_text(to_junit(displayed), encoding="utf-8")
 
-    _print_summary(result)
-
-    if fmt in ("json", "both"):
-        console.print(f"Report : {report_path}")
-    if fmt in ("sarif", "both"):
-        console.print(f"SARIF  : {sarif_path}")
+        if show_ui:
+            _print_summary(displayed)
+            if fmt in ("json", "both"):
+                console.print(f"Report : {report_path}")
+            if fmt in ("sarif", "both"):
+                console.print(f"SARIF  : {sarif_path}")
+            if fmt == "html":
+                console.print(f"HTML   : {html_path}")
+            if fmt == "junit":
+                console.print(f"JUnit  : {junit_path}")
 
     if fail_on:
         try:
             threshold = Severity(fail_on)
         except ValueError:
             console.print(f"[red]Invalid severity: {fail_on}[/red]")
-            raise typer.Exit(1)
+            raise typer.Exit(2)
         tidx = _SEVERITY_ORDER.index(threshold)
         if any(_SEVERITY_ORDER.index(f.severity) <= tidx for f in findings):
             raise typer.Exit(1)
@@ -275,6 +351,11 @@ async def _scan_batch(
     password: str | None = None,
     proxy: str | None = None,
     verify_ssl: bool = True,
+    *,
+    stdout_mode: bool = False,
+    min_severity: str | None = None,
+    baseline_path: Path | None = None,
+    save_baseline_path: Path | None = None,
 ) -> None:
     try:
         targets = _parse_targets_file(targets_file)
@@ -311,7 +392,7 @@ async def _scan_batch(
         async def bounded(url: str, plat_name: str, target_dir: Path) -> bool:
             async with sem:
                 try:
-                    await _scan(url, plat_name, module_filter, target_dir, timeout, fail_on, fmt, exclude_module, verbose=False, api_key=api_key, username=username, password=password, proxy=proxy, verify_ssl=verify_ssl)
+                    await _scan(url, plat_name, module_filter, target_dir, timeout, fail_on, fmt, exclude_module, verbose=False, api_key=api_key, username=username, password=password, proxy=proxy, verify_ssl=verify_ssl, stdout_mode=False, min_severity=min_severity, baseline_path=baseline_path, save_baseline_path=None)
                     progress.console.print(f"  [green]✓[/green] {url}")
                     return True
                 except SystemExit as exc:

@@ -51,17 +51,17 @@ class TestArgValidation:
         targets_file = tmp_path / "targets.txt"
         targets_file.write_text("http://localhost:3001\n")
         result = runner.invoke(app, ["scan", "--url", "http://x", "--targets", str(targets_file)])
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         assert "mutually exclusive" in result.stdout
 
     def test_neither_url_nor_targets(self):
         result = runner.invoke(app, ["scan"])
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         assert "--url" in result.stdout or "Provide" in result.stdout
 
     def test_invalid_format(self):
         result = runner.invoke(app, ["scan", "--url", "http://x", "--format", "xml"])
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         assert "Invalid --format" in result.stdout
 
 
