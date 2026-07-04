@@ -5,6 +5,17 @@ from .base import BaseModule
 from ..core.models import AgentSurface, Finding, OWASPCategory, Severity
 from ..platforms.base import BasePlatform
 
+
+def _is_api_response(r) -> bool:
+    """Return False if response is HTML (SPA catch-all), True for JSON/API responses."""
+    try:
+        ct = r.headers.get("content-type", "")
+        if isinstance(ct, str):
+            return "text/html" not in ct
+    except Exception:
+        pass
+    return True
+
 # Flowise: node-load-method can execute arbitrary JS code
 _FLOWISE_CODE_ENDPOINTS = [
     "/api/v1/node-load-method/jsFunctionNode",
@@ -42,7 +53,7 @@ class CodeExecutionModule(BaseModule):
         for endpoint in _FLOWISE_CODE_ENDPOINTS:
             try:
                 r = await platform.post(endpoint, json=_JS_EXEC_PROBE)
-                if r.status_code == 200:
+                if r.status_code == 200 and _is_api_response(r):
                     body = r.text
                     # If response contains OS info, it's confirmed RCE
                     os_indicators = ["linux", "darwin", "win32", "freebsd"]
@@ -75,7 +86,7 @@ class CodeExecutionModule(BaseModule):
         for endpoint in _AUTOGEN_EXEC_ENDPOINTS:
             try:
                 r = await platform.post(endpoint, json=_AUTOGEN_EXEC_PAYLOAD)
-                if r.status_code in (200, 201):
+                if r.status_code in (200, 201) and _is_api_response(r):
                     findings.append(Finding(
                         title=f"Unauthenticated Python execution via {endpoint}",
                         severity=Severity.CRITICAL,
@@ -97,7 +108,7 @@ class CodeExecutionModule(BaseModule):
         for endpoint in _LANGFLOW_EXEC_ENDPOINTS:
             try:
                 r = await platform.post(endpoint, json={"code": "print('condor')", "frontend_node": {}})
-                if r.status_code in (200, 201):
+                if r.status_code in (200, 201) and _is_api_response(r):
                     findings.append(Finding(
                         title=f"Code execution endpoint reachable: {endpoint}",
                         severity=Severity.HIGH,

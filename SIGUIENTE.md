@@ -11,23 +11,24 @@ cerrar el E2E diferido contra Flowise, y agregar el adapter de AutoGen Studio.
 
 **Deliverables:**
 
-| ID | Descripción | Criterio de completitud |
-|----|-------------|------------------------|
-| D1 | E2E scan contra Flowise local | `condor scan` arroja ≥1 finding real en instancia de laboratorio |
-| D2 | Módulo ASI06 `memory-poisoning` | Detecta vectorstores accesibles sin auth + prueba inyección en documentos |
-| D3 | Módulo ASI07 `inter-agent` | Detecta endpoints de comunicación inter-agente expuestos; prueba escalación via sub-agents |
-| D4 | AutoGen Studio adapter | `condor scan --platform autogen` enumera teams y tools |
+| ID | Descripción | Criterio de completitud | Estado |
+|----|-------------|------------------------|--------|
+| D1 | E2E scan contra Flowise local | `condor scan` arroja ≥1 finding real en instancia de laboratorio | ⚠️ parcial |
+| D2 | Módulo ASI06 `memory-poisoning` | Detecta vectorstores accesibles sin auth + prueba inyección en documentos | ✅ |
+| D3 | Módulo ASI07 `inter-agent` | Detecta endpoints de comunicación inter-agente expuestos; prueba escalación via sub-agents | ✅ |
+| D4 | AutoGen Studio adapter | `condor scan --platform autogen` enumera teams y tools | ✅ |
 
-**Dependencias:**
-- D1: Flowise corriendo localmente (Docker: `docker run -p 3000:3000 flowiseai/flowise`)
-- D2: Research del API de vectorstore en Flowise/Langflow (Chroma, Pinecone, Weaviate endpoints)
-- D3: Research de AutoGen Studio API (endpoints de team execution e inter-agent messaging)
-- D4: AutoGen Studio corriendo para pruebas manuales
+**D1 — Estado:**
 
-**Notas:**
-- D1 es carry-over de RT-CONDOR-V01; levantar Flowise con `docker run` antes de la sesión
-- ASI06 es alto valor para el case study — las vectorstores sin auth son finding frecuente
-- ASI07 requiere instancia con multi-agent flow configurado; documentar en docs/ si no hay acceso
+El E2E corre correctamente end-to-end (health check, surface enumeration, 7 módulos). Flowise 2.x y 3.x tienen workspace auth activa por defecto (SQLite), resultando en 0 findings (comportamiento correcto en instancia hardened).
+
+Para ≥1 finding real, levantar Flowise 1.x:
+```
+docker run -d --name flowise -p 3001:3000 flowiseai/flowise:1.8.2
+condor scan --url http://localhost:3001 --platform flowise
+```
+
+**Fix crítico incluido este bloque:** `_is_api_response(r)` en ASI03/05/06/07 — filtra respuestas `text/html` (SPA catch-all de Flowise 3.x/Next.js) que generaban falsos positivos CRITICAL/HIGH.
 
 ---
 

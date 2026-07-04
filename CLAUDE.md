@@ -41,7 +41,7 @@ condor/
 3. Registrar en `condor/cli.py` → `_PLATFORMS`
 4. Tests en `tests/test_platform_nombre.py`
 
-## Módulos implementados (5/10)
+## Módulos implementados (7/10)
 
 | Módulo | ASI | Estado |
 |--------|-----|--------|
@@ -50,10 +50,15 @@ condor/
 | privilege-abuse | ASI03 | ✅ |
 | supply-chain | ASI04 | ✅ |
 | code-execution | ASI05 | ✅ |
-| memory-poisoning | ASI06 | pendiente |
-| inter-agent | ASI07 | pendiente |
+| memory-poisoning | ASI06 | ✅ |
+| inter-agent | ASI07 | ✅ |
 | — | ASI08–10 | backlog |
 
-## Plataformas soportadas (4)
+## Notas de implementación
 
-`flowise` · `generic` · `langflow` · `dify`
+- `_is_api_response(r)` helper en ASI03/05/06/07: filtra respuestas HTML (SPA catch-all de Flowise 3.x/Next.js) para evitar falsos positivos. Flowise 3.x+ devuelve `200 text/html` para rutas desconocidas.
+- Flowise 2.x+ y 3.x fuerzan workspace auth por defecto (SQLite). Para E2E con findings: usar `flowiseai/flowise:1.8.x` o instancia sin credenciales de versión <2.x.
+
+## Plataformas soportadas (5)
+
+`flowise` · `generic` · `langflow` · `dify` · `autogen`

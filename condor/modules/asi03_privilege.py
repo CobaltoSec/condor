@@ -5,6 +5,17 @@ from .base import BaseModule
 from ..core.models import AgentSurface, Finding, OWASPCategory, Severity
 from ..platforms.base import BasePlatform
 
+
+def _is_api_response(r) -> bool:
+    """Return False if response is HTML (SPA catch-all), True for JSON/API responses."""
+    try:
+        ct = r.headers.get("content-type", "")
+        if isinstance(ct, str):
+            return "text/html" not in ct
+    except Exception:
+        pass
+    return True
+
 # (endpoint, severity, what it exposes)
 _SENSITIVE = [
     ("/api/v1/credentials",  Severity.CRITICAL, "stored credentials and API keys"),
@@ -37,7 +48,7 @@ class PrivilegeAbuseModule(BaseModule):
         for endpoint, severity, what in _SENSITIVE:
             try:
                 r = await platform.get(endpoint)
-                if r.status_code == 200:
+                if r.status_code == 200 and _is_api_response(r):
                     try:
                         body = r.json()
                         count = len(body) if isinstance(body, list) else 1
@@ -70,7 +81,7 @@ class PrivilegeAbuseModule(BaseModule):
         for method, endpoint, severity, what in _WRITE_ENDPOINTS:
             try:
                 r = await platform.post(endpoint, json={"name": "_condor_probe_", "test": True})
-                if r.status_code in (200, 201):
+                if r.status_code in (200, 201) and _is_api_response(r):
                     # Try to clean up
                     try:
                         body = r.json()

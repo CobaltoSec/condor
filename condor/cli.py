@@ -17,11 +17,14 @@ from .platforms.flowise import FlowisePlatform
 from .platforms.generic import GenericPlatform
 from .platforms.langflow import LangflowPlatform
 from .platforms.dify import DifyPlatform
+from .platforms.autogen import AutoGenPlatform
 from .modules.asi01_goal_hijack import GoalHijackModule
 from .modules.asi02_tool_misuse import ToolMisuseModule
 from .modules.asi03_privilege import PrivilegeAbuseModule
 from .modules.asi04_supply_chain import SupplyChainModule
 from .modules.asi05_code_exec import CodeExecutionModule
+from .modules.asi06_memory_poisoning import MemoryPoisoningModule
+from .modules.asi07_inter_agent import InterAgentModule
 
 app     = typer.Typer(name="condor", help="Agentic AI security testing framework (OWASP ASI Top 10)", add_completion=False)
 console = Console()
@@ -36,11 +39,13 @@ _SEV_COLOR = {
 }
 
 _ALL_MODULES = {
-    "goal-hijack":    GoalHijackModule,
-    "tool-misuse":    ToolMisuseModule,
-    "privilege-abuse": PrivilegeAbuseModule,
-    "supply-chain":   SupplyChainModule,
-    "code-execution": CodeExecutionModule,
+    "goal-hijack":      GoalHijackModule,
+    "tool-misuse":      ToolMisuseModule,
+    "privilege-abuse":  PrivilegeAbuseModule,
+    "supply-chain":     SupplyChainModule,
+    "code-execution":   CodeExecutionModule,
+    "memory-poisoning": MemoryPoisoningModule,
+    "inter-agent":      InterAgentModule,
 }
 
 _PLATFORMS = {
@@ -48,7 +53,7 @@ _PLATFORMS = {
     "generic":  GenericPlatform,
     "langflow": LangflowPlatform,
     "dify":     DifyPlatform,
-    # autogen — coming next
+    "autogen":  AutoGenPlatform,
 }
 
 
