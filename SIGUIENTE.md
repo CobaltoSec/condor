@@ -141,10 +141,11 @@ condor scan --url http://localhost:3001 --platform flowise --format both
 | rogue-agents | ASI10 | ✅ |
 
 **Plataformas:** `flowise` · `generic` · `langflow` · `dify` · `autogen` · `n8n` · `llamaindex` · `crewai` · `langgraph` · `ollama` · `openai-compat`  
-**Cobertura:** 10/10 módulos OWASP ASI · 211 tests passing  
-**Output:** JSON + SARIF 2.1.0 · Batch scan concurrente (`--targets` + `--concurrency`)  
-**Auth:** `--api-key` / `--username` / `--password` / env vars en todas las plataformas  
-**DX:** `--proxy` · `--insecure` · `ScanResult` timestamps · Generic OpenAPI auto-parsing · GraphQL probe
+**Cobertura:** 10/10 módulos OWASP ASI · 256 tests passing  
+**Output:** JSON · SARIF 2.1.0 · HTML · JUnit XML · `--stdout`  
+**Auth:** `--api-key` / `--username` / `--password` / env vars · `--proxy` · `--insecure`  
+**DX:** `--min-severity` · `--baseline` / `--save-baseline` · `--config` (condor.yaml) · módulos en paralelo · deduplicación  
+**Ecosystem:** GitHub Actions action · Dockerfile · Plugin system (entry_points) · Remediation Advisor
 
 ---
 

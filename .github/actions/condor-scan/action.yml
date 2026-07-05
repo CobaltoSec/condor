@@ -1,0 +1,85 @@
+name: Condor AI Security Scan
+description: Scan an agentic AI platform for OWASP ASI Top 10 vulnerabilities
+author: CobaltoSec
+
+inputs:
+  url:
+    description: Base URL of the agentic platform to scan
+    required: true
+  platform:
+    description: Platform type (flowise, generic, langflow, dify, autogen, n8n, llamaindex, crewai, langgraph, ollama, openai-compat)
+    required: false
+    default: generic
+  format:
+    description: Output format (json, sarif, both, html, junit, table)
+    required: false
+    default: sarif
+  fail-on:
+    description: Exit 1 if findings at this severity or above (critical, high, medium, low)
+    required: false
+    default: ''
+  api-key:
+    description: API key for authenticated instances
+    required: false
+    default: ''
+  module:
+    description: Module filter (all or specific module name)
+    required: false
+    default: all
+  exclude-module:
+    description: Module name to exclude (repeat the step input for multiple)
+    required: false
+    default: ''
+  output-dir:
+    description: Directory for output reports
+    required: false
+    default: condor-results
+
+outputs:
+  sarif-file:
+    description: Path to the SARIF report file
+    value: ${{ steps.set-outputs.outputs.sarif-file }}
+  report-file:
+    description: Path to the JSON report file
+    value: ${{ steps.set-outputs.outputs.report-file }}
+  html-file:
+    description: Path to the HTML report file
+    value: ${{ steps.set-outputs.outputs.html-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Condor
+      shell: bash
+      run: pip install cobaltosec-condor
+
+    - name: Build scan command
+      id: build-cmd
+      shell: bash
+      run: |
+        CMD="condor scan --url ${{ inputs.url }} --platform ${{ inputs.platform }} --format ${{ inputs.format }} --output-dir ${{ inputs.output-dir }}"
+        if [ -n "${{ inputs.fail-on }}" ]; then
+          CMD="$CMD --fail-on ${{ inputs.fail-on }}"
+        fi
+        if [ -n "${{ inputs.api-key }}" ]; then
+          CMD="$CMD --api-key ${{ inputs.api-key }}"
+        fi
+        if [ "${{ inputs.module }}" != "all" ] && [ -n "${{ inputs.module }}" ]; then
+          CMD="$CMD --module ${{ inputs.module }}"
+        fi
+        if [ -n "${{ inputs.exclude-module }}" ]; then
+          CMD="$CMD --exclude-module ${{ inputs.exclude-module }}"
+        fi
+        echo "cmd=$CMD" >> "$GITHUB_OUTPUT"
+
+    - name: Run Condor scan
+      shell: bash
+      run: ${{ steps.build-cmd.outputs.cmd }}
+
+    - name: Set output paths
+      id: set-outputs
+      shell: bash
+      run: |
+        echo "sarif-file=${{ inputs.output-dir }}/report.sarif" >> "$GITHUB_OUTPUT"
+        echo "report-file=${{ inputs.output-dir }}/report.json" >> "$GITHUB_OUTPUT"
+        echo "html-file=${{ inputs.output-dir }}/report.html" >> "$GITHUB_OUTPUT"

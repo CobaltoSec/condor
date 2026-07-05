@@ -1,0 +1,33 @@
+name: Condor AI Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly Monday 6am
+
+jobs:
+  condor-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Condor scan
+        uses: ./.github/actions/condor-scan
+        with:
+          url: ${{ vars.TARGET_URL }}
+          platform: ${{ vars.TARGET_PLATFORM || 'generic' }}
+          format: sarif
+          fail-on: critical
+          api-key: ${{ secrets.CONDOR_API_KEY }}
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: condor-results/report.sarif
+          category: condor-ai-security

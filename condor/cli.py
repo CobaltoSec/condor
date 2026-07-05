@@ -39,6 +39,24 @@ from .modules.asi10_rogue import RogueAgentsModule
 app     = typer.Typer(name="condor", help="Agentic AI security testing framework (OWASP ASI Top 10)", add_completion=False)
 console = Console()
 
+
+def _load_plugins() -> None:
+    """Discover and register third-party modules/platforms via entry_points."""
+    try:
+        from importlib.metadata import entry_points
+        for ep in entry_points(group="condor.modules"):
+            try:
+                _ALL_MODULES[ep.name] = ep.load()
+            except Exception:
+                pass
+        for ep in entry_points(group="condor.platforms"):
+            try:
+                _PLATFORMS[ep.name] = ep.load()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
 _SEVERITY_ORDER = [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW, Severity.INFO]
 _SEV_COLOR = {
     "critical": "bold red",
@@ -99,8 +117,37 @@ def scan(
     min_severity: Annotated[Optional[str], typer.Option("--min-severity", help="Only show findings at this severity or above")] = None,
     baseline: Annotated[Optional[Path], typer.Option("--baseline", help="Baseline file to suppress known findings")] = None,
     save_baseline: Annotated[Optional[Path], typer.Option("--save-baseline", help="Save findings as new baseline file")] = None,
+    config: Annotated[Optional[Path], typer.Option("--config", "-c", help="Path to condor.yaml config file")] = None,
 ) -> None:
     """Scan an agentic AI platform for security vulnerabilities."""
+    _load_plugins()
+
+    from .config import load_config, apply_config_defaults
+    cfg = load_config(config)
+    opts = apply_config_defaults(
+        cfg,
+        platform=platform if platform != "generic" else None,
+        module=module,
+        timeout=timeout if timeout != 30 else None,
+        fail_on=fail_on,
+        fmt=fmt if fmt != "json" else None,
+        api_key=api_key,
+        username=username,
+        password=password,
+        proxy=proxy,
+        min_severity=min_severity,
+    )
+    platform   = opts.get("platform") or platform
+    module     = opts.get("module") or module
+    timeout    = opts.get("timeout") or timeout
+    fail_on    = opts.get("fail_on") or fail_on
+    fmt        = opts.get("fmt") or fmt
+    api_key    = opts.get("api_key") or api_key
+    username   = opts.get("username") or username
+    password   = opts.get("password") or password
+    proxy      = opts.get("proxy") or proxy
+    min_severity = opts.get("min_severity") or min_severity
+
     if url and targets:
         console.print("[red]--url and --targets are mutually exclusive[/red]")
         raise typer.Exit(2)
@@ -236,6 +283,9 @@ async def _scan(
                 all_findings.extend(batch)
 
     findings = _dedup_findings(all_findings)
+
+    from .remediation import enrich_findings
+    findings = enrich_findings(findings, platform_name)
 
     # Apply baseline suppression
     if baseline_path:
