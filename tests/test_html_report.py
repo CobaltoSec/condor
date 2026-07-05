@@ -99,3 +99,28 @@ def test_endpoint_shown():
     r = _result(findings=[_finding(endpoint="/api/v1/secret")])
     out = to_html(r, "1.0.0")
     assert "/api/v1/secret" in out
+
+
+def test_cwe_badge_rendered():
+    r = _result(findings=[_finding(cwe_id="CWE-94")])
+    out = to_html(r, "1.0.0")
+    assert "CWE-94" in out
+    assert "cwe-badge" in out
+
+
+def test_cwe_badge_absent_when_no_cwe():
+    r = _result(findings=[_finding(cwe_id=None)])
+    out = to_html(r, "1.0.0")
+    assert 'class="cwe-badge">CWE-' not in out
+
+
+def test_compliance_section_rendered():
+    r = _result(findings=[_finding(owasp_id=OWASPCategory.ASI01)])
+    out = to_html(r, "1.0.0")
+    assert "ISO" in out or "NIST" in out or "EU AI Act" in out
+
+
+def test_compliance_tag_css_class_present():
+    r = _result(findings=[_finding(owasp_id=OWASPCategory.ASI05)])
+    out = to_html(r, "1.0.0")
+    assert "compliance-tag" in out

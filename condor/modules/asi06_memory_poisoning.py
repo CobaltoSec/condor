@@ -94,6 +94,7 @@ class MemoryPoisoningModule(BaseModule):
                             "Restrict document store endpoints to authenticated users."
                         ),
                         confidence=90,
+                        cwe_id="CWE-306",
                         endpoint=endpoint,
                     ))
             except Exception:
@@ -129,6 +130,7 @@ class MemoryPoisoningModule(BaseModule):
                             "to authenticated administrators."
                         ),
                         confidence=90,
+                        cwe_id="CWE-306",
                         endpoint=endpoint,
                     ))
             except Exception:
@@ -168,6 +170,7 @@ class MemoryPoisoningModule(BaseModule):
                                     "to authorized users only. Purge injected test documents."
                                 ),
                                 confidence=90,
+                                cwe_id="CWE-20",
                                 endpoint=endpoint,
                             ))
                         else:
@@ -190,6 +193,7 @@ class MemoryPoisoningModule(BaseModule):
                                     "to authorized users only."
                                 ),
                                 confidence=75,
+                                cwe_id="CWE-306",
                                 endpoint=endpoint,
                             ))
                     except Exception:
@@ -207,6 +211,7 @@ class MemoryPoisoningModule(BaseModule):
                                 "to authorized users only."
                             ),
                             confidence=70,
+                            cwe_id="CWE-306",
                             endpoint=endpoint,
                         ))
                     break
@@ -226,6 +231,7 @@ class MemoryPoisoningModule(BaseModule):
                             "to authorized users only."
                         ),
                         confidence=70,
+                        cwe_id="CWE-306",
                         endpoint=endpoint,
                     ))
                     break
@@ -262,6 +268,7 @@ class MemoryPoisoningModule(BaseModule):
                             "Use Dify's built-in access controls for knowledge bases."
                         ),
                         confidence=85,
+                        cwe_id="CWE-306",
                         endpoint=endpoint,
                     ))
             except Exception:

@@ -155,6 +155,7 @@ class TrustExploitationModule(BaseModule):
                                 "Restrict agent definition endpoints to authenticated users."
                             ),
                             confidence=90,
+                            cwe_id="CWE-290",
                             endpoint=endpoint,
                         ))
                     else:
@@ -174,6 +175,7 @@ class TrustExploitationModule(BaseModule):
                                 "Avoid returning system prompt content in unauthenticated API responses."
                             ),
                             confidence=85,
+                            cwe_id="CWE-200",
                             endpoint=endpoint,
                         ))
                     return findings
@@ -224,6 +226,7 @@ class TrustExploitationModule(BaseModule):
                                     "Add explicit disclosure instructions to the system prompt."
                                 ),
                                 confidence=85,
+                                cwe_id="CWE-290",
                                 endpoint=endpoint,
                             ))
                             return findings
@@ -260,6 +263,7 @@ class TrustExploitationModule(BaseModule):
                                 "on agent definitions. Implement audit logging for system prompt changes."
                             ),
                             confidence=90,
+                            cwe_id="CWE-306",
                             endpoint=endpoint,
                         ))
                         return findings

@@ -102,6 +102,7 @@ class InterAgentModule(BaseModule):
                             "to authenticated users."
                         ),
                         confidence=90,
+                        cwe_id="CWE-306",
                         endpoint=endpoint,
                     ))
             except Exception:
@@ -135,6 +136,7 @@ class InterAgentModule(BaseModule):
                             "to loopback/internal network via reverse proxy."
                         ),
                         confidence=95,
+                        cwe_id="CWE-306",
                         endpoint=endpoint,
                     ))
                     break
@@ -179,6 +181,7 @@ class InterAgentModule(BaseModule):
                             "Restrict internal-prediction endpoints to loopback only via reverse proxy firewall rules."
                         ),
                         confidence=90,
+                        cwe_id="CWE-346",
                         endpoint=endpoint,
                     ))
                     break
@@ -218,6 +221,7 @@ class InterAgentModule(BaseModule):
                             "authentication in front of the AutoGen Studio API."
                         ),
                         confidence=85,
+                        cwe_id="CWE-306",
                         endpoint=endpoint,
                     ))
             except Exception:
@@ -246,6 +250,7 @@ class InterAgentModule(BaseModule):
                             "Implement rate limiting and input validation on workflow triggers."
                         ),
                         confidence=85,
+                        cwe_id="CWE-306",
                         endpoint=endpoint,
                     ))
                 elif r.status_code in (400, 422) and _is_api_response(r):
@@ -263,6 +268,7 @@ class InterAgentModule(BaseModule):
                             "Require a valid API key for Dify workflow endpoints."
                         ),
                         confidence=65,
+                        cwe_id="CWE-306",
                         endpoint=endpoint,
                     ))
             except Exception:

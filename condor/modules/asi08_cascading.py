@@ -110,6 +110,7 @@ class CascadingFailuresModule(BaseModule):
                             "Return standard RateLimit-* headers per RFC 6585."
                         ),
                         confidence=70,
+                        cwe_id="CWE-770",
                         endpoint=endpoint,
                     ))
                     break
@@ -161,6 +162,7 @@ class CascadingFailuresModule(BaseModule):
                             "Return 429 with Retry-After header when limits are exceeded."
                         ),
                         confidence=75,
+                        cwe_id="CWE-770",
                         endpoint=endpoint,
                     ))
                     break
@@ -199,6 +201,7 @@ class CascadingFailuresModule(BaseModule):
                             "Apply authentication middleware to all /queue, /tasks, and /jobs routes."
                         ),
                         confidence=85,
+                        cwe_id="CWE-284",
                         endpoint=endpoint,
                     ))
             except Exception:
@@ -226,6 +229,7 @@ class CascadingFailuresModule(BaseModule):
                         "Validate that DELETE operations are restricted to the task owner or administrator."
                     ),
                     confidence=85,
+                    cwe_id="CWE-284",
                     endpoint=_CANCEL_ENDPOINT,
                 ))
             # 404 alone is ambiguous (endpoint may not exist at all) — not reported

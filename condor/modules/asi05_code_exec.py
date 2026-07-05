@@ -93,6 +93,7 @@ class CodeExecutionModule(BaseModule):
                                 "Restrict the node-load-method endpoint to authenticated users only."
                             ),
                             confidence=98,
+                            cwe_id="CWE-78",
                             endpoint=endpoint,
                         ))
                         continue
@@ -119,6 +120,7 @@ class CodeExecutionModule(BaseModule):
                                 "Restrict the node-load-method endpoint to authenticated users only."
                             ),
                             confidence=95,
+                            cwe_id="CWE-77",
                             endpoint=endpoint,
                         ))
                         continue
@@ -143,6 +145,7 @@ class CodeExecutionModule(BaseModule):
                         evidence=f"POST {endpoint} with 300ms setTimeout probe → response in {elapsed:.2f}s",
                         remediation="Enable Flowise authentication. Restrict code execution endpoints.",
                         confidence=50,
+                        cwe_id="CWE-77",
                         endpoint=endpoint,
                     ))
 
@@ -169,6 +172,7 @@ class CodeExecutionModule(BaseModule):
                             evidence=f"POST {endpoint} with subprocess payload → command output: {body[:200]}",
                             remediation="Enable AutoGen Studio authentication and sandbox code execution.",
                             confidence=98,
+                            cwe_id="CWE-78",
                             endpoint=endpoint,
                         ))
                         continue
@@ -193,6 +197,7 @@ class CodeExecutionModule(BaseModule):
                         ),
                         remediation="Enable AutoGen Studio authentication and sandbox code execution.",
                         confidence=95 if path_confirmed else 90,
+                        cwe_id="CWE-94",
                         endpoint=endpoint,
                     ))
             except Exception:
@@ -218,6 +223,7 @@ class CodeExecutionModule(BaseModule):
                             evidence=f"POST {endpoint} with subprocess payload → command output: {body[:200]}",
                             remediation="Restrict custom component endpoints to authenticated users.",
                             confidence=98,
+                            cwe_id="CWE-78",
                             endpoint=endpoint,
                         ))
                         continue
@@ -239,6 +245,7 @@ class CodeExecutionModule(BaseModule):
                         evidence=f"POST {endpoint} → {r.status_code}" + (f", 'condor' in response" if output_confirmed else ""),
                         remediation="Restrict custom component endpoints to authenticated users.",
                         confidence=85 if output_confirmed else 65,
+                        cwe_id="CWE-94",
                         endpoint=endpoint,
                     ))
             except Exception:

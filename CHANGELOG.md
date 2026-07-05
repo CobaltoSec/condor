@@ -1,5 +1,17 @@
 # Changelog
 
+## [RT-CONDOR-V09] — 2026-07-05 — PLATFORM COVERAGE ROUND 2 + INTEGRATIONS
+
+- **5 platform adapters nuevos**: `openwebui` (`/api/v1/functions` Python exec, `functions_unauth` flag), `hayhooks` (`/pipelines`, normalización strings→dicts, `/openapi.json`), `letta` (Bearer auth, per-agent `/memory` IDOR surface), `qdrant` (header `api-key` nativo — no Bearer, `/telemetry` para version), `chroma` (version = bare string vía `r.text.strip().strip('"')`, `/api/v1/heartbeat`)
+- **CWE IDs por finding**: `Finding.cwe_id: str | None` en `core/models.py`; 18 CWEs distintos mapeados (CWE-20, CWE-22, CWE-74, CWE-77, CWE-78, CWE-94, CWE-200, CWE-284, CWE-285, CWE-290, CWE-306, CWE-312, CWE-346, CWE-639, CWE-770, CWE-915, CWE-918, CWE-1357) en los 10 módulos ASI
+- **Compliance mapping**: `condor/compliance.py` — `get_compliance_refs(owasp_id)` → `{iso_42001, nist_ai_rmf, eu_ai_act}`; ISO/IEC 42001:2023, NIST AI RMF, EU AI Act para ASI01–10
+- **Integrations package**: `condor/integrations/` — `notify_slack()` + `notify_teams()` (MessageCard, themeColor por severidad), `export_to_defectdojo()` (Product→Engagement→Test→Finding hierarchy, test FK requerido)
+- **CLI flags nuevos**: `--notify-slack`, `--notify-teams`, `--defectdojo-url`, `--defectdojo-key`, `--defectdojo-product`; wired en `_scan()` y `_scan_batch()` con try/except para no bloquear el scan
+- **`condor scaffold`**: genera boilerplate `condor/modules/asiNN_slug.py` + `tests/test_asiNN_slug.py`; valida slug, detecta colisiones, imprime instrucción de registro
+- **SARIF mejorado**: `message.text` con prefijo `[Title]`, `rule.help.text` con remediation, `rule.properties.tags` con `["security", "CWE-XXX"]`
+- **HTML mejorado**: `.cwe-badge` (purple, monospace) junto al título; sección compliance con `.compliance-tag` por framework; dark mode aware
+- 73 tests nuevos (272 → **345/345 passing**)
+
 ## [RT-CONDOR-CFP] — 2026-07-05 — FP REDUCTION + CVE DETECTION + CFP MATERIAL
 
 - **Triage E2E**: verificación manual de 10 findings contra Flowise 1.8.2; 5 FPs identificados y eliminados (ASI02 ×2, ASI05 ×2, ASI08 ×1); 8 TPs confirmados en scan final

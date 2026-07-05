@@ -37,6 +37,7 @@ class Finding(BaseModel):
     remediation: str = ""
     confidence:  int = Field(default=80)
     endpoint:    str = ""
+    cwe_id:      str | None = None
 
     def model_post_init(self, __context: Any) -> None:
         self.confidence = max(0, min(100, self.confidence))

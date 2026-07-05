@@ -93,6 +93,7 @@ class PrivilegeAbuseModule(BaseModule):
                             "owns or has explicit access to the requested resource ID."
                         ),
                         confidence=85,
+                        cwe_id="CWE-639",
                         endpoint=endpoint,
                     )]
             except Exception:
@@ -125,6 +126,7 @@ class PrivilegeAbuseModule(BaseModule):
                         ),
                         remediation="Update Flowise to 3.0.13+, which validates the x-request-from header server-side.",
                         confidence=98,
+                        cwe_id="CWE-285",
                         endpoint=endpoint,
                     ))
             except Exception:
@@ -162,6 +164,7 @@ class PrivilegeAbuseModule(BaseModule):
                             "For Dify: ensure the API requires a valid Bearer token."
                         ),
                         confidence=95,
+                        cwe_id="CWE-306",
                         endpoint=endpoint,
                     ))
             except Exception:
@@ -194,6 +197,7 @@ class PrivilegeAbuseModule(BaseModule):
                         evidence=f"POST {endpoint} → {r.status_code} (created without auth)",
                         remediation="Enable platform authentication and enforce authorization on all write endpoints.",
                         confidence=98,
+                        cwe_id="CWE-306",
                         endpoint=endpoint,
                     ))
 
@@ -222,6 +226,7 @@ class PrivilegeAbuseModule(BaseModule):
                                 "Strip or reject any fields not in the allowlist before persistence."
                             ),
                             confidence=90,
+                            cwe_id="CWE-915",
                             endpoint=endpoint,
                         ))
             except Exception:

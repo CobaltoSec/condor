@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import html
 
+from .compliance import get_compliance_refs
 from .core.models import ScanResult, Severity
 
 _SEV_ORDER = [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW, Severity.INFO]
@@ -33,11 +34,14 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 details summary { cursor: pointer; list-style: none; }
 details summary::-webkit-details-marker { display: none; }
 .sev-badge { display: inline-block; border-radius: 4px; padding: 2px 8px; color: #fff; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; }
+.cwe-badge { display: inline-block; border-radius: 4px; padding: 1px 6px; background: #6c3483; color: #fff; font-size: 0.68rem; font-family: monospace; font-weight: 700; margin-left: 6px; vertical-align: middle; }
 td { padding: 0.65rem 1rem; font-size: 0.88rem; vertical-align: top; }
 .detail-box { margin-top: 0.6rem; padding: 0.75rem; background: #f8f9fa; border-radius: 4px; border-left: 3px solid #bdc3c7; }
 .detail-box h4 { font-size: 0.75rem; text-transform: uppercase; color: #7f8c8d; margin-bottom: 0.3rem; letter-spacing: 0.05em; }
 .detail-box p { font-size: 0.85rem; line-height: 1.5; }
 .detail-box pre { font-size: 0.78rem; white-space: pre-wrap; word-break: break-all; background: #ecf0f1; padding: 0.5rem; border-radius: 3px; margin-top: 0.3rem; max-height: 200px; overflow-y: auto; }
+.compliance-grid { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.4rem; }
+.compliance-tag { display: inline-block; border-radius: 3px; padding: 2px 6px; font-size: 0.7rem; font-weight: 600; color: #fff; }
 .confidence { color: #7f8c8d; font-size: 0.8rem; }
 .endpoint { font-family: monospace; font-size: 0.78rem; color: #5d6d7e; }
 @media (prefers-color-scheme: dark) {
@@ -49,11 +53,37 @@ td { padding: 0.65rem 1rem; font-size: 0.88rem; vertical-align: top; }
   .detail-box pre { background: #0a2540; }
   .no-findings { background: #1e4d2b; border-color: #27ae60; color: #58d68d; }
 }
+:root[data-theme="dark"] body { background: #1a1a2e; color: #ecf0f1; }
+:root[data-theme="light"] body { background: #f5f6fa; color: #2c3e50; }
 """
 
 
 def _e(text: str) -> str:
     return html.escape(str(text), quote=True)
+
+
+def _compliance_html(owasp_id: str) -> str:
+    refs = get_compliance_refs(owasp_id)
+    if not refs:
+        return ""
+    parts = []
+    color_map = {"iso_42001": "#1a5276", "nist_ai_rmf": "#1e8449", "eu_ai_act": "#784212"}
+    label_map = {"iso_42001": "ISO 42001", "nist_ai_rmf": "NIST AI RMF", "eu_ai_act": "EU AI Act"}
+    for key in ("iso_42001", "nist_ai_rmf", "eu_ai_act"):
+        items = refs.get(key, [])
+        color = color_map[key]
+        label = label_map[key]
+        for item in items:
+            parts.append(
+                f'<span class="compliance-tag" style="background:{color}" title="{_e(label)}">'
+                f"{_e(item)}</span>"
+            )
+    return (
+        '<div class="detail-box">'
+        '<h4>Compliance Mapping</h4>'
+        f'<div class="compliance-grid">{"".join(parts)}</div>'
+        '</div>'
+    )
 
 
 def to_html(result: ScanResult, version: str) -> str:
@@ -102,6 +132,10 @@ def to_html(result: ScanResult, version: str) -> str:
         for f in sorted_findings:
             color = _SEV_COLORS.get(f.severity.value, "#7f8c8d")
             sev_badge = f'<span class="sev-badge" style="background:{color}">{_e(f.severity.value.upper())}</span>'
+            cwe_badge = (
+                f'<span class="cwe-badge">{_e(f.cwe_id)}</span>'
+                if f.cwe_id else ""
+            )
             detail_parts = ""
             if f.description:
                 detail_parts += (
@@ -121,9 +155,10 @@ def to_html(result: ScanResult, version: str) -> str:
                     f'<h4>Remediation</h4><pre>{_e(f.remediation)}</pre>'
                     f'</div>'
                 )
+            detail_parts += _compliance_html(f.owasp_id.value)
             rows += (
                 f"<tr><td>{sev_badge}</td>"
-                f"<td><details><summary>{_e(f.title)}</summary>{detail_parts}</details></td>"
+                f"<td><details><summary>{_e(f.title)}{cwe_badge}</summary>{detail_parts}</details></td>"
                 f"<td>{_e(f.owasp_id.value)}</td>"
                 f'<td class="endpoint">{_e(f.endpoint) if f.endpoint else "—"}</td>'
                 f'<td class="confidence">{f.confidence}%</td>'

@@ -49,3 +49,13 @@ def test_scan_result_empty():
     result = ScanResult(target="http://localhost:3000", platform="generic")
     assert result.finding_count == {}
     assert result.findings == []
+
+
+def test_finding_cwe_id_default_none():
+    f = Finding(title="x", severity=Severity.HIGH, owasp_id=OWASPCategory.ASI01, description="x")
+    assert f.cwe_id is None
+
+
+def test_finding_cwe_id_stored():
+    f = Finding(title="x", severity=Severity.HIGH, owasp_id=OWASPCategory.ASI02, description="x", cwe_id="CWE-22")
+    assert f.cwe_id == "CWE-22"

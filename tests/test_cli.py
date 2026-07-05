@@ -214,3 +214,28 @@ class TestFailOn:
                 "--fail-on", "critical",  # HIGH doesn't reach CRITICAL threshold
             ])
         assert result.exit_code == 0
+
+
+class TestScaffold:
+    def test_scaffold_creates_module_and_test(self, tmp_path):
+        import condor.cli as cli_mod
+        orig_modules = Path(cli_mod.__file__).parent / "modules"
+        orig_tests = Path(cli_mod.__file__).parent.parent / "tests"
+
+        with (
+            patch.object(Path, "write_text"),
+            patch.object(Path, "exists", return_value=False),
+        ):
+            result = runner.invoke(app, ["scaffold", "--name", "my-check", "--asi", "99"])
+        assert result.exit_code == 0
+        assert "asi99_my_check.py" in result.stdout
+        assert "test_asi99_my_check.py" in result.stdout
+
+    def test_scaffold_invalid_name_exits_1(self):
+        result = runner.invoke(app, ["scaffold", "--name", "My Check!!", "--asi", "01"])
+        assert result.exit_code == 1
+
+    def test_scaffold_existing_file_exits_1(self, tmp_path):
+        with patch.object(Path, "exists", return_value=True):
+            result = runner.invoke(app, ["scaffold", "--name", "existing", "--asi", "01"])
+        assert result.exit_code == 1

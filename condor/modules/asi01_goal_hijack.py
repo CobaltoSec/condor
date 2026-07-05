@@ -114,6 +114,7 @@ class GoalHijackModule(BaseModule):
                             "Use a separate guardrail layer to inspect tool outputs before the LLM processes them."
                         ),
                         confidence=85 if exact else 60,
+                        cwe_id="CWE-74",
                         endpoint=f"/api/v1/prediction/{flow_id}",
                     ))
                     break
@@ -172,6 +173,7 @@ class GoalHijackModule(BaseModule):
                                 "Consider an LLM-based guard to detect injection attempts."
                             ),
                             confidence=90,
+                            cwe_id="CWE-20",
                             endpoint=endpoint,
                         ))
 
@@ -190,6 +192,7 @@ class GoalHijackModule(BaseModule):
                                 "Implement an LLM-based guard to detect injection attempts."
                             ),
                             confidence=60,
+                            cwe_id="CWE-20",
                             endpoint=endpoint,
                         ))
 

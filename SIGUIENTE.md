@@ -1,40 +1,46 @@
 # SIGUIENTE — Condor
 
-## Bloque activo
+## Bloques siguientes
 
-### RT-CONDOR-V09: PLATFORM COVERAGE ROUND 2 + INTEGRATIONS
+### RT-CONDOR-PYPI — Publicar en PyPI + GitHub público ⭐ recomendado siguiente
 
-#### Plataformas nuevas (prioridad alta)
-
-Arquitectura: cada platform adapter hereda automáticamente los 10 módulos ASI existentes.
-Solo hay que implementar `health_check()`, `enumerate() → AgentSurface`, y auth si aplica.
-
-| Plataforma | Endpoints clave | Finding probable | Prioridad |
-|-----------|----------------|-----------------|-----------|
-| **Open WebUI** | `/api/v1/tools`, `/api/v1/functions` | CRITICAL RCE — Python execution sin auth | 1 |
-| **Haystack/hayhooks** | `GET /pipelines`, `POST /pipeline/run/{name}` | HIGH — pipeline execution sin auth | 2 |
-| **Letta (MemGPT)** | REST API completa, agentes con memoria | HIGH — acceso a memoria de agentes, IDOR | 3 |
-| **Qdrant standalone** | `GET /collections`, `PUT /collections/{name}/points` | HIGH — RAG poisoning directo sin plataforma | 4 |
-| **Chroma standalone** | `GET /api/v1/collections`, `POST /api/v1/collections/{id}/add` | HIGH — idem Qdrant | 4 |
-
-**Open WebUI** es el más urgente: 50k+ stars, `/api/v1/functions` = Python arbitrario sin auth en default. Finding CRITICAL garantizado y demostrable.
-
-#### Integraciones (prioridad media, diferidas de V08)
-
-- **DefectDojo**: exportar findings via API REST (`/api/v2/findings/`). Convierte Condor de research tool a tool de engagements reales.
-- **Slack/Teams webhook**: `--notify-slack <webhook>` al finalizar scan.
-- **Finding.cwe_id**: CWE por finding (CWE-285, CWE-306, etc.) para reportes formales.
-- **Compliance mapping**: ISO 42001 / NIST AI RMF / EU AI Act por finding. Dict lookup en `condor/compliance.py`.
-- **Module scaffold CLI**: `condor module scaffold --name asi99-custom`.
-
-Talla estimada: L (plataformas) + M (integraciones)
+- Prerequisito: ✅ validación E2E con findings reales (Flowise 1.8.2, CFP)
+- Tareas: bump versión → 1.0.0, README público con ejemplos, CI/CD con GitHub Actions, `pip install cobaltosec-condor`
+- Talla: M
 
 ---
 
-### RT-CONDOR-PYPI — Publicar en PyPI + GitHub público
+### RT-CONDOR-V10-E2E — Validación E2E con plataformas V09
 
-- Prerequisito: validación E2E con findings reales (CFP o equivalente)
-- Tareas: bump versión → 1.0.0, README público, CI/CD con GitHub Actions (V08), `pip install cobaltosec-condor`
+Docker Compose con las 5 plataformas nuevas + script de validación de findings reales.
+
+| Plataforma | Docker image | Finding esperado |
+|-----------|--------------|-----------------|
+| Open WebUI | `ghcr.io/open-webui/open-webui:main` | CRITICAL — `/api/v1/functions` Python exec sin auth |
+| Qdrant | `qdrant/qdrant` | HIGH — colecciones accesibles sin auth |
+| Chroma | `chromadb/chroma` | HIGH — collections sin auth |
+| Hayhooks | `deepset/hayhooks` | HIGH — pipeline execution sin auth |
+| Letta | `lettaai/letta` | HIGH — IDOR en `/v1/agents/{id}/memory` |
+
+- Objetivo: scan real contra cada plataforma, capturar findings, documentar en `tests/e2e/`
+- Talla: L
+
+---
+
+### RT-CONDOR-V10-DEEPENED — Módulos ASI profundizados para Qdrant/Chroma
+
+ASI06 y ASI10 con conocimiento específico de vectorstores standalone:
+- ASI06: queries de poisoning reales contra Chroma/Qdrant (no solo auth probe)
+- ASI10: collection injection — crear colección `__admin__` o similar sin auth
+- ASI02: SSRF via Qdrant snapshot restore (`POST /collections/{name}/snapshots/recover`)
+
+- Talla: M
+
+---
+
+### ~~RT-CONDOR-V09: PLATFORM COVERAGE ROUND 2 + INTEGRATIONS~~ ✅ CERRADO
+
+5 plataformas (Open WebUI, Hayhooks, Letta, Qdrant, Chroma) + CWE IDs + compliance mapping (ISO 42001 / NIST AI RMF / EU AI Act) + Slack/Teams/DefectDojo integrations + scaffold CLI. 272 → 345 tests.
 
 ---
 
@@ -53,8 +59,8 @@ Talla estimada: L (plataformas) + M (integraciones)
 | trust-exploitation | ASI09 | ✅ |
 | rogue-agents | ASI10 | ✅ |
 
-**Plataformas:** `flowise` · `generic` · `langflow` · `dify` · `autogen` · `n8n` · `llamaindex` · `crewai` · `langgraph` · `ollama` · `openai-compat`  
-**Cobertura:** 10/10 módulos OWASP ASI · 272 tests passing  
+**Plataformas:** `flowise` · `generic` · `langflow` · `dify` · `autogen` · `n8n` · `llamaindex` · `crewai` · `langgraph` · `ollama` · `openai-compat` · `openwebui` · `hayhooks` · `letta` · `qdrant` · `chroma`  
+**Cobertura:** 10/10 módulos OWASP ASI · 345 tests passing  
 **Output:** JSON · SARIF 2.1.0 · HTML · JUnit XML · `--stdout`  
 **Auth:** `--api-key` / `--username` / `--password` / env vars · `--proxy` · `--insecure`  
 **DX:** `--min-severity` · `--baseline` / `--save-baseline` · `--config` (condor.yaml) · módulos en paralelo · deduplicación  

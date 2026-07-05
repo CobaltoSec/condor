@@ -89,6 +89,7 @@ class SupplyChainModule(BaseModule):
                     "FLOWISE_PASSWORD. Restrict the /api/v1/tools endpoint to authenticated sessions."
                 ),
                 confidence=90,
+                cwe_id="CWE-306",
                 endpoint="/api/v1/tools",
             ))
 
@@ -116,6 +117,7 @@ class SupplyChainModule(BaseModule):
                         "Consider an LLM-based guard that scans tool metadata before registration."
                     ),
                     confidence=70,
+                    cwe_id="CWE-74",
                     endpoint="/api/v1/tools",
                 ))
 
@@ -195,6 +197,7 @@ class SupplyChainModule(BaseModule):
                         "Pin dependency versions and add supply chain monitoring."
                     ),
                     confidence=85,
+                    cwe_id="CWE-1357",
                     endpoint="/api/v1/tools",
                 ))
 

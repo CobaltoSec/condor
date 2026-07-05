@@ -97,3 +97,59 @@ def test_confidence_in_partial_fingerprints():
     sarif = to_sarif(result, "0.1.0")
     fp = sarif["runs"][0]["results"][0]["partialFingerprints"]
     assert fp["condorConfidence"] == "92"
+
+
+def test_message_text_contains_title_prefix():
+    finding = Finding(
+        title="My Title",
+        severity=Severity.HIGH,
+        owasp_id=OWASPCategory.ASI01,
+        description="some description",
+        endpoint="/test",
+    )
+    result = _make_result([finding])
+    sarif = to_sarif(result, "0.1.0")
+    msg = sarif["runs"][0]["results"][0]["message"]["text"]
+    assert msg.startswith("[My Title]")
+    assert "some description" in msg
+
+
+def test_rule_help_contains_remediation():
+    finding = Finding(
+        title="T",
+        severity=Severity.HIGH,
+        owasp_id=OWASPCategory.ASI02,
+        description="d",
+        remediation="Sanitize all inputs carefully.",
+        endpoint="/test",
+    )
+    result = _make_result([finding])
+    sarif = to_sarif(result, "0.1.0")
+    rules = sarif["runs"][0]["tool"]["driver"]["rules"]
+    rule = next(r for r in rules if r["id"] == "ASI02")
+    assert rule["help"]["text"] == "Sanitize all inputs carefully."
+
+
+def test_rule_tags_include_cwe():
+    finding = Finding(
+        title="T",
+        severity=Severity.HIGH,
+        owasp_id=OWASPCategory.ASI03,
+        description="d",
+        cwe_id="CWE-306",
+        endpoint="/test",
+    )
+    result = _make_result([finding])
+    sarif = to_sarif(result, "0.1.0")
+    rules = sarif["runs"][0]["tool"]["driver"]["rules"]
+    rule = next(r for r in rules if r["id"] == "ASI03")
+    assert "CWE-306" in rule["properties"]["tags"]
+    assert "security" in rule["properties"]["tags"]
+
+
+def test_rule_tags_security_always_present():
+    finding = _make_finding()
+    result = _make_result([finding])
+    sarif = to_sarif(result, "0.1.0")
+    rules = sarif["runs"][0]["tool"]["driver"]["rules"]
+    assert "security" in rules[0]["properties"]["tags"]

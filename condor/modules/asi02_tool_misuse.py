@@ -134,6 +134,7 @@ class ToolMisuseModule(BaseModule):
                     evidence=f"Tool '{tool_name}' has 'func' field with {len(str(func_code))} chars of code.",
                     remediation="Do not expose tool source code via the API. Return only metadata.",
                     confidence=90,
+                    cwe_id="CWE-200",
                     endpoint="/api/v1/tools",
                 ))
 
@@ -156,6 +157,7 @@ class ToolMisuseModule(BaseModule):
                             "Mask or omit sensitive fields before serialization."
                         ),
                         confidence=95,
+                        cwe_id="CWE-312",
                         endpoint="/api/v1/tools",
                     ))
 
@@ -190,6 +192,7 @@ class ToolMisuseModule(BaseModule):
                                         "Run the tool execution process with minimal filesystem permissions."
                                     ),
                                     confidence=95,
+                                    cwe_id="CWE-22",
                                     endpoint=endpoint,
                                 ))
                                 break
@@ -227,6 +230,7 @@ class ToolMisuseModule(BaseModule):
                                         "Use sandboxed template engines or disable expression evaluation entirely."
                                     ),
                                     confidence=70,
+                                    cwe_id="CWE-94",
                                     endpoint=endpoint,
                                 ))
                                 break
@@ -260,6 +264,7 @@ class ToolMisuseModule(BaseModule):
                                         "Use a dedicated egress proxy with SSRF protections."
                                     ),
                                     confidence=95,
+                                    cwe_id="CWE-918",
                                     endpoint=endpoint,
                                 ))
                                 break
@@ -278,6 +283,7 @@ class ToolMisuseModule(BaseModule):
                                         "Block requests to internal IP ranges."
                                     ),
                                     confidence=60,
+                                    cwe_id="CWE-918",
                                     endpoint=endpoint,
                                 ))
                                 break
@@ -303,6 +309,7 @@ class ToolMisuseModule(BaseModule):
                             evidence=f"POST {endpoint} → 200 OK ({len(body)} bytes)",
                             remediation="Require authentication on all tool execution endpoints.",
                             confidence=60,
+                            cwe_id="CWE-306",
                             endpoint=endpoint,
                         ))
                 except Exception:

@@ -25,6 +25,11 @@ condor/
   platforms/langgraph.py  — LangGraph Platform (threads, store, runs)
   platforms/ollama.py     — Ollama local model server
   platforms/openai_compat.py — OpenAI-compatible (vLLM, LocalAI, LM Studio)
+  platforms/openwebui.py  — Open WebUI (Bearer auth, /api/v1/functions Python exec)
+  platforms/hayhooks.py   — Haystack/hayhooks (/pipelines, /openapi.json)
+  platforms/letta.py      — Letta/MemGPT (Bearer auth, per-agent /memory IDOR surface)
+  platforms/qdrant.py     — Qdrant standalone (api-key header nativo, /telemetry version)
+  platforms/chroma.py     — Chroma standalone (/api/v1/heartbeat, bare-string version)
   modules/base.py       — BaseModule (abstracto, run() → list[Finding])
   modules/asi01_goal_hijack.py   — ASI01: prompt injection
   modules/asi02_tool_misuse.py   — ASI02: path traversal, SSRF, SSTI, cred exposure
@@ -42,7 +47,11 @@ condor/
   baseline.py           — fingerprint SHA-256, load/save/apply baseline (suppression)
   config.py             — carga condor.yaml / .condor.yaml / ~/.condor.yaml
   remediation.py        — enrich_findings(findings, platform) → remediaciones específicas por plataforma
-  cli.py                — _ALL_MODULES, _PLATFORMS, _load_plugins(); todos los flags de scan
+  compliance.py         — get_compliance_refs(owasp_id) → {iso_42001, nist_ai_rmf, eu_ai_act}
+  integrations/
+    notify.py           — notify_slack(), notify_teams() async webhooks
+    defectdojo.py       — export_to_defectdojo() → Product→Engagement→Test→Finding
+  cli.py                — _ALL_MODULES, _PLATFORMS, _load_plugins(); todos los flags de scan + scaffold command
 ```
 
 ## Agregar un módulo nuevo
@@ -99,7 +108,12 @@ condor/
 - ASI03: `_check_header_bypass()` — probe CVE-2026-30820 (`x-request-from: internal`, Flowise ≤ 3.0.12). Solo dispara si baseline es 401/403; skip si endpoint ya abierto (no duplica con probe principal).
 - ASI05: OS command probe activo (`child_process.execSync('id')` para JS, `subprocess.check_output(['id'])` para Python). Output confirmation para AutoGen y Langflow. Blind timing probe: warmup request previo + threshold 0.5s (evita cold-TCP FP de ~200ms en primer request).
 - ASI08: DELETE 404 no se reporta — endpoint puede no existir; solo 200/204 es evidencia de job cancellation sin auth.
+- `Finding.cwe_id: str | None` — campo opcional, ej. `"CWE-306"`. Usado en SARIF (rule tags) y HTML (badge). NO almacenado en DefectDojo como string — se convierte a `int(cwe_id.split("-")[1])`.
+- Qdrant: usa header `api-key` nativo (no `Authorization: Bearer`).
+- Chroma: `/api/v1/version` retorna bare string `"0.5.11"` (sin JSON wrapper) — parsear con `r.text.strip().strip('"')`.
+- Integrations wiring: `--notify-slack/teams/defectdojo-*` se evalúan post-dedup en `_scan()` con try/except — fallos no bloquean el scan ni el exit code.
+- `condor scaffold --name <slug> --asi <nn>`: genera `condor/modules/asiNN_slug.py` + `tests/test_asiNN_slug.py`; valida regex `^[a-z][a-z0-9_-]*$`; sale con exit 1 si el archivo ya existe.
 
-## Plataformas soportadas (11)
+## Plataformas soportadas (16)
 
-`flowise` · `generic` · `langflow` · `dify` · `autogen` · `n8n` · `llamaindex` · `crewai` · `langgraph` · `ollama` · `openai-compat`
+`flowise` · `generic` · `langflow` · `dify` · `autogen` · `n8n` · `llamaindex` · `crewai` · `langgraph` · `ollama` · `openai-compat` · `openwebui` · `hayhooks` · `letta` · `qdrant` · `chroma`

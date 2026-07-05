@@ -25,6 +25,11 @@ from .platforms.crewai import CrewAIPlatform
 from .platforms.langgraph import LangGraphPlatform
 from .platforms.ollama import OllamaPlatform
 from .platforms.openai_compat import OpenAICompatPlatform
+from .platforms.openwebui import OpenWebUIPlatform
+from .platforms.hayhooks import HayhooksPlatform
+from .platforms.letta import LettaPlatform
+from .platforms.qdrant import QdrantPlatform
+from .platforms.chroma import ChromaPlatform
 from .modules.asi01_goal_hijack import GoalHijackModule
 from .modules.asi02_tool_misuse import ToolMisuseModule
 from .modules.asi03_privilege import PrivilegeAbuseModule
@@ -91,6 +96,11 @@ _PLATFORMS = {
     "langgraph":     LangGraphPlatform,
     "ollama":        OllamaPlatform,
     "openai-compat": OpenAICompatPlatform,
+    "openwebui":     OpenWebUIPlatform,
+    "hayhooks":      HayhooksPlatform,
+    "letta":         LettaPlatform,
+    "qdrant":        QdrantPlatform,
+    "chroma":        ChromaPlatform,
 }
 
 _VALID_FORMATS = ("json", "sarif", "both", "table", "html", "junit")
@@ -118,6 +128,11 @@ def scan(
     baseline: Annotated[Optional[Path], typer.Option("--baseline", help="Baseline file to suppress known findings")] = None,
     save_baseline: Annotated[Optional[Path], typer.Option("--save-baseline", help="Save findings as new baseline file")] = None,
     config: Annotated[Optional[Path], typer.Option("--config", "-c", help="Path to condor.yaml config file")] = None,
+    notify_slack_url:   Annotated[Optional[str], typer.Option("--notify-slack",   help="Slack webhook URL",         envvar="CONDOR_NOTIFY_SLACK")]   = None,
+    notify_teams_url:   Annotated[Optional[str], typer.Option("--notify-teams",   help="Teams webhook URL",         envvar="CONDOR_NOTIFY_TEAMS")]   = None,
+    defectdojo_url:     Annotated[Optional[str], typer.Option("--defectdojo-url",  help="DefectDojo base URL",      envvar="CONDOR_DEFECTDOJO_URL")]  = None,
+    defectdojo_key:     Annotated[Optional[str], typer.Option("--defectdojo-key",  help="DefectDojo API token",     envvar="CONDOR_DEFECTDOJO_KEY")]  = None,
+    defectdojo_product: Annotated[Optional[str], typer.Option("--defectdojo-product", help="DefectDojo product name")] = None,
 ) -> None:
     """Scan an agentic AI platform for security vulnerabilities."""
     _load_plugins()
@@ -161,9 +176,9 @@ def scan(
         console.print(f"[red]Invalid --min-severity '{min_severity}'. Choose from: critical, high, medium, low, info[/red]")
         raise typer.Exit(2)
     if targets:
-        asyncio.run(_scan_batch(targets, platform, module, output_dir, timeout, fail_on, fmt, exclude_module, concurrency, api_key, username, password, proxy, not insecure, stdout_mode=stdout, min_severity=min_severity, baseline_path=baseline, save_baseline_path=save_baseline))
+        asyncio.run(_scan_batch(targets, platform, module, output_dir, timeout, fail_on, fmt, exclude_module, concurrency, api_key, username, password, proxy, not insecure, stdout_mode=stdout, min_severity=min_severity, baseline_path=baseline, save_baseline_path=save_baseline, notify_slack_url=notify_slack_url, notify_teams_url=notify_teams_url, defectdojo_url=defectdojo_url, defectdojo_key=defectdojo_key, defectdojo_product=defectdojo_product))
     else:
-        asyncio.run(_scan(url, platform, module, output_dir, timeout, fail_on, fmt, exclude_module, api_key=api_key, username=username, password=password, proxy=proxy, verify_ssl=not insecure, stdout_mode=stdout, min_severity=min_severity, baseline_path=baseline, save_baseline_path=save_baseline))
+        asyncio.run(_scan(url, platform, module, output_dir, timeout, fail_on, fmt, exclude_module, api_key=api_key, username=username, password=password, proxy=proxy, verify_ssl=not insecure, stdout_mode=stdout, min_severity=min_severity, baseline_path=baseline, save_baseline_path=save_baseline, notify_slack_url=notify_slack_url, notify_teams_url=notify_teams_url, defectdojo_url=defectdojo_url, defectdojo_key=defectdojo_key, defectdojo_product=defectdojo_product))
 
 
 def _dedup_findings(findings: list) -> list:
@@ -197,6 +212,11 @@ async def _scan(
     min_severity: str | None = None,
     baseline_path: Path | None = None,
     save_baseline_path: Path | None = None,
+    notify_slack_url: str | None = None,
+    notify_teams_url: str | None = None,
+    defectdojo_url: str | None = None,
+    defectdojo_key: str | None = None,
+    defectdojo_product: str | None = None,
 ) -> None:
     platform_cls = _PLATFORMS.get(platform_name)
     if not platform_cls:
@@ -310,6 +330,31 @@ async def _scan(
         duration_seconds=(finished_at - started_at).total_seconds(),
     )
 
+    # Notifications and integrations (run after result is assembled, before filtering)
+    if notify_slack_url:
+        try:
+            from .integrations.notify import notify_slack
+            await notify_slack(notify_slack_url, result)
+        except Exception as exc:
+            if show_ui:
+                console.print(f"[yellow]Slack notification failed: {exc}[/yellow]")
+    if notify_teams_url:
+        try:
+            from .integrations.notify import notify_teams
+            await notify_teams(notify_teams_url, result)
+        except Exception as exc:
+            if show_ui:
+                console.print(f"[yellow]Teams notification failed: {exc}[/yellow]")
+    if defectdojo_url and defectdojo_key and defectdojo_product:
+        try:
+            from .integrations.defectdojo import export_to_defectdojo
+            await export_to_defectdojo(result, defectdojo_url, defectdojo_key, defectdojo_product)
+            if show_ui:
+                console.print(f"[green]DefectDojo export complete: {defectdojo_product}[/green]")
+        except Exception as exc:
+            if show_ui:
+                console.print(f"[yellow]DefectDojo export failed: {exc}[/yellow]")
+
     # Save baseline if requested
     if save_baseline_path:
         from .baseline import save_baseline
@@ -406,6 +451,11 @@ async def _scan_batch(
     min_severity: str | None = None,
     baseline_path: Path | None = None,
     save_baseline_path: Path | None = None,
+    notify_slack_url: str | None = None,
+    notify_teams_url: str | None = None,
+    defectdojo_url: str | None = None,
+    defectdojo_key: str | None = None,
+    defectdojo_product: str | None = None,
 ) -> None:
     try:
         targets = _parse_targets_file(targets_file)
@@ -442,7 +492,7 @@ async def _scan_batch(
         async def bounded(url: str, plat_name: str, target_dir: Path) -> bool:
             async with sem:
                 try:
-                    await _scan(url, plat_name, module_filter, target_dir, timeout, fail_on, fmt, exclude_module, verbose=False, api_key=api_key, username=username, password=password, proxy=proxy, verify_ssl=verify_ssl, stdout_mode=False, min_severity=min_severity, baseline_path=baseline_path, save_baseline_path=None)
+                    await _scan(url, plat_name, module_filter, target_dir, timeout, fail_on, fmt, exclude_module, verbose=False, api_key=api_key, username=username, password=password, proxy=proxy, verify_ssl=verify_ssl, stdout_mode=False, min_severity=min_severity, baseline_path=baseline_path, save_baseline_path=None, notify_slack_url=notify_slack_url, notify_teams_url=notify_teams_url, defectdojo_url=defectdojo_url, defectdojo_key=defectdojo_key, defectdojo_product=defectdojo_product)
                     progress.console.print(f"  [green]✓[/green] {url}")
                     return True
                 except SystemExit as exc:
@@ -490,3 +540,111 @@ def list_modules() -> None:
 def version() -> None:
     """Print version."""
     console.print(f"condor {__version__}")
+
+
+_SCAFFOLD_MODULE_TEMPLATE = '''\
+"""ASI{nn} — {title}: <one-line description>."""
+from __future__ import annotations
+
+from .base import BaseModule
+from ..core.models import AgentSurface, Finding, OWASPCategory, Severity
+from ..platforms.base import BasePlatform
+
+
+class {class_name}(BaseModule):
+    name        = "{slug}"
+    owasp_id    = OWASPCategory.ASI{nn}
+    description = "<short description> (ASI{nn})"
+
+    async def run(self, surface: AgentSurface, platform: BasePlatform) -> list[Finding]:
+        findings: list[Finding] = []
+        # TODO: implement detection logic
+        return findings
+'''
+
+_SCAFFOLD_TEST_TEMPLATE = '''\
+"""Tests for ASI{nn} — {slug} module."""
+from __future__ import annotations
+
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+
+from condor.modules.asi{nn}_{slug} import {class_name}
+from condor.core.models import AgentSurface, OWASPCategory, Severity
+
+
+def _mock_response(status: int = 200, json_data=None, text: str = "", headers=None):
+    r = MagicMock()
+    r.status_code = status
+    r.json.return_value = json_data if json_data is not None else {{}}
+    r.text = text
+    r.content = text.encode()
+    r.headers = headers or {{"content-type": "application/json"}}
+    return r
+
+
+@pytest.fixture
+def surface():
+    return AgentSurface(platform="generic", base_url="http://localhost:8080")
+
+
+@pytest.fixture
+def plat():
+    p = MagicMock()
+    p.base_url = "http://localhost:8080"
+    p.get = AsyncMock(return_value=_mock_response(404))
+    p.post = AsyncMock(return_value=_mock_response(404))
+    return p
+
+
+@pytest.mark.asyncio
+async def test_{slug_under}_no_findings(surface, plat):
+    mod = {class_name}()
+    assert mod.owasp_id == OWASPCategory.ASI{nn}
+    findings = await mod.run(surface, plat)
+    assert isinstance(findings, list)
+'''
+
+
+@app.command()
+def scaffold(
+    name: Annotated[str, typer.Option("--name", "-n", help="Module slug (e.g. my-custom-check)")],
+    asi: Annotated[str, typer.Option("--asi", "-a", help="ASI number (e.g. 01)")] = "01",
+) -> None:
+    """Generate boilerplate for a new ASI module."""
+    import re
+
+    if not re.match(r"^[a-z][a-z0-9_-]*$", name):
+        console.print("[red]--name must be lowercase alphanumeric, hyphens, or underscores[/red]")
+        raise typer.Exit(1)
+
+    nn = asi.zfill(2)
+    slug = name
+    slug_under = name.replace("-", "_")
+    class_name = "".join(w.capitalize() for w in name.replace("-", "_").split("_")) + "Module"
+    title = name.replace("-", " ").replace("_", " ").title()
+
+    here = Path(__file__).parent
+    mod_path = here / "modules" / f"asi{nn}_{slug_under}.py"
+    test_path = here.parent / "tests" / f"test_asi{nn}_{slug_under}.py"
+
+    if mod_path.exists():
+        console.print(f"[red]Module already exists: {mod_path}[/red]")
+        raise typer.Exit(1)
+    if test_path.exists():
+        console.print(f"[red]Test file already exists: {test_path}[/red]")
+        raise typer.Exit(1)
+
+    mod_path.write_text(
+        _SCAFFOLD_MODULE_TEMPLATE.format(nn=nn, title=title, slug=slug, slug_under=slug_under, class_name=class_name),
+        encoding="utf-8",
+    )
+    test_path.write_text(
+        _SCAFFOLD_TEST_TEMPLATE.format(nn=nn, slug=slug, slug_under=slug_under, class_name=class_name),
+        encoding="utf-8",
+    )
+
+    console.print(f"[green]Module :[/green] {mod_path}")
+    console.print(f"[green]Tests  :[/green] {test_path}")
+    console.print(f"\n[yellow]Register in cli.py → _ALL_MODULES:[/yellow]")
+    console.print(f'    "{slug}": {class_name},  # from .modules.asi{nn}_{slug_under}')

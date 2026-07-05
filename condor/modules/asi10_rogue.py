@@ -134,6 +134,7 @@ class RogueAgentsModule(BaseModule):
                             "Implement approval workflows for new agent deployments."
                         ),
                         confidence=90,
+                        cwe_id="CWE-306",
                         endpoint=endpoint,
                     ))
                 elif r.status_code in (400, 422) and _is_api_response(r):
@@ -152,6 +153,7 @@ class RogueAgentsModule(BaseModule):
                             "Return 401 Unauthorized before processing any request body."
                         ),
                         confidence=75,
+                        cwe_id="CWE-306",
                         endpoint=endpoint,
                     ))
             except Exception:
@@ -192,6 +194,7 @@ class RogueAgentsModule(BaseModule):
                             "Implement a tool allowlist and sign approved tools."
                         ),
                         confidence=88,
+                        cwe_id="CWE-306",
                         endpoint=endpoint,
                     ))
                 elif r.status_code in (400, 422) and _is_api_response(r):
@@ -209,6 +212,7 @@ class RogueAgentsModule(BaseModule):
                             "Require authentication for tool/plugin registration endpoints."
                         ),
                         confidence=70,
+                        cwe_id="CWE-306",
                         endpoint=endpoint,
                     ))
             except Exception:
@@ -250,6 +254,7 @@ class RogueAgentsModule(BaseModule):
                             "Implement webhook signing to prevent forged events."
                         ),
                         confidence=85,
+                        cwe_id="CWE-284",
                         endpoint=endpoint,
                     ))
             except Exception:
@@ -319,6 +324,7 @@ class RogueAgentsModule(BaseModule):
                                 "Implement approval workflows and audit logging for prompt changes."
                             ),
                             confidence=80,
+                            cwe_id="CWE-306",
                             endpoint="",
                         ))
                         break
