@@ -10,29 +10,45 @@
 
 ---
 
-### RT-CONDOR-V10-E2E — Validación E2E con plataformas V09
+### ~~RT-CONDOR-V10-E2E — Validación E2E con plataformas V09~~ ✅ CERRADO
 
-Docker Compose con las 5 plataformas nuevas + script de validación de findings reales.
+Docker Compose + script `tests/e2e/run_e2e.py`. 5/5 plataformas escaneadas.
 
-| Plataforma | Docker image | Finding esperado |
-|-----------|--------------|-----------------|
-| Open WebUI | `ghcr.io/open-webui/open-webui:main` | CRITICAL — `/api/v1/functions` Python exec sin auth |
-| Qdrant | `qdrant/qdrant` | HIGH — colecciones accesibles sin auth |
-| Chroma | `chromadb/chroma` | HIGH — collections sin auth |
-| Hayhooks | `deepset/hayhooks` | HIGH — pipeline execution sin auth |
-| Letta | `lettaai/letta` | HIGH — IDOR en `/v1/agents/{id}/memory` |
+| Plataforma | Docker image | Finding real | Gap documentado |
+|-----------|--------------|-------------|----------------|
+| Qdrant | `qdrant/qdrant:latest` | 0 (sin probes específicos) | ASI06/ASI10/ASI02 — V10-DEEPENED |
+| Chroma | `chromadb/chroma:latest` | 0 (sin probes específicos) | ASI06/ASI10 — V10-DEEPENED |
+| Hayhooks | `deepset/hayhooks:main` | 0 (sin probes específicos) | ASI03/ASI09 — V10-DEEPENED |
+| Letta | `lettaai/letta:latest` | **ASI04 HIGH** — tool registry sin auth ✅ | ASI03/ASI06 — V10-DEEPENED |
+| Open WebUI | `ghcr.io/open-webui/open-webui:v0.5.20` | 0 (SPA catch-all) | ASI05/ASI10 POST probe — V10-DEEPENED |
 
-- Objetivo: scan real contra cada plataforma, capturar findings, documentar en `tests/e2e/`
-- Talla: L
+Notas:
+- OWI `:main` eliminó `WEBUI_AUTH=False` API bypass — usar `v0.5.20` para E2E
+- OWI v0.5.20 devuelve HTML para GET `/api/v1/*` (SPA); probes de POST necesarios
+- ASI08 FP corregido: burst check ahora solo trigerea en 200/201 (no en 400/405/422)
 
 ---
 
-### RT-CONDOR-V10-DEEPENED — Módulos ASI profundizados para Qdrant/Chroma
+### RT-CONDOR-V10-DEEPENED — Módulos ASI profundizados para V09 platforms ⭐ siguiente
 
-ASI06 y ASI10 con conocimiento específico de vectorstores standalone:
-- ASI06: queries de poisoning reales contra Chroma/Qdrant (no solo auth probe)
-- ASI10: collection injection — crear colección `__admin__` o similar sin auth
-- ASI02: SSRF via Qdrant snapshot restore (`POST /collections/{name}/snapshots/recover`)
+Probes específicos para las 8 gaps identificadas en E2E:
+
+**Qdrant/Chroma (vectorstores)**:
+- ASI06: GET `/collections` y `/api/v1/collections` sin auth → HIGH finding
+- ASI10: POST collection creation sin auth (Qdrant `PUT /collections/{name}`, Chroma POST)
+- ASI02: SSRF via Qdrant `POST /collections/{name}/snapshots/recover`
+
+**Hayhooks**:
+- ASI03: GET `/pipelines` sin auth → HIGH finding (agregar a `_SENSITIVE`)
+- ASI09: GET `/status` expone versión sin auth → LOW finding (sin flows necesario)
+
+**Letta**:
+- ASI03: GET `/v1/agents` sin auth → HIGH (agregar `/v1/agents` a `_SENSITIVE`)
+- ASI06: IDOR en `/v1/agents/{id}/memory` sin auth
+
+**Open WebUI**:
+- ASI05: POST `/api/v1/functions` crea función Python → CRITICAL finding
+- ASI10: POST `/api/v1/tools` sin auth → CRITICAL finding
 
 - Talla: M
 

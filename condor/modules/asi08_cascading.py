@@ -141,7 +141,7 @@ class CascadingFailuresModule(BaseModule):
                     break  # rate limiting confirmed active
                 if _has_rate_limit_headers(valid[0]):
                     break  # rate limit headers present — consider it configured
-                if any(sc in (200, 201, 400, 405, 422) for sc in status_codes):
+                if any(sc in (200, 201) for sc in status_codes):
                     findings.append(Finding(
                         title=f"No Rate Limiting Detected Under Burst Load: {endpoint}",
                         severity=Severity.MEDIUM,
