@@ -1,5 +1,18 @@
 # Changelog
 
+## [RT-CONDOR-PRE-E2E] — 2026-07-04 — FP REDUCTIONS + TEST COVERAGE + FIRST E2E RUN
+
+- **ASI05 test coverage**: `tests/test_asi05.py` — 12 tests cubriendo todas las rutas del módulo RCE (Flowise cmd/os/timing, AutoGen, Langflow); cobertura era 0%, único módulo sin tests
+- **ASI04 FP reduction**: `_GENERIC_NAMES_SKIP_OSV` frozenset en `asi04_supply_chain.py` — nombres genéricos ("search", "calculator", "tool", etc.) skippean el OSV.dev lookup para evitar falsos positivos masivos en E2E
+- **ASI02 SSTI FP reduction**: length guard en `asi02_tool_misuse.py` — indicador "49" ignorado si `body > 500 chars`; confidence 85 → 70
+- **ASI08 burst size**: `_BURST_SIZE = 10 → 30` para detectar rate limits reales (10 concurrent nunca dispara en instalaciones por defecto)
+- **ASI09 impersonation FP**: removido `my name is \w+` regex de `_HUMAN_IMPERSONATION_PATTERNS` — triggereaba CRITICAL en customer service bots ("My name is Alex…")
+- **LangGraph surface.endpoints**: corregido para acumular solo endpoints que respondieron (200 o 401/403); antes siempre retornaba lista de 4 fijos sin verificar
+- **Remediation coverage**: ASI02 sin entradas en `condor/remediation.py` — agregadas `("ASI02", "flowise")` y `("ASI02", "generic")`
+- **HTML report**: remediation `<p>` → `<pre>` para preservar formato de snippets de configuración
+- **First E2E run**: `flowise-1.8` container (`:3002`) → 10 findings reales (4 CRITICAL, 3 HIGH, 1 MEDIUM, 2 LOW); scan 5s
+- Suite total: **269/269 passing**
+
 ## [RT-CONDOR-V08] — 2026-07-04 — INTEGRATIONS + ECOSYSTEM
 
 - **GitHub Actions**: composite action `.github/actions/condor-scan/action.yml` — inputs `url / platform / format / fail-on / api-key / exclude-module`; outputs `sarif-file / report-file / html-file`; workflow de ejemplo con SARIF upload a GitHub Code Scanning; CI matrix Python 3.11/3.12; `Dockerfile` python:3.11-slim

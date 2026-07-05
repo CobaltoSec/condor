@@ -153,7 +153,7 @@ async def test_burst_probe_no_rate_limit():
     burst = [f for f in findings if "Burst Load" in f.title]
     assert len(burst) == 1
     assert burst[0].severity == Severity.MEDIUM
-    assert "10" in burst[0].evidence
+    assert "30" in burst[0].evidence
     assert burst[0].confidence == 75
 
 

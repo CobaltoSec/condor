@@ -118,7 +118,7 @@ def to_html(result: ScanResult, version: str) -> str:
             if f.remediation:
                 detail_parts += (
                     f'<div class="detail-box">'
-                    f'<h4>Remediation</h4><p>{_e(f.remediation)}</p>'
+                    f'<h4>Remediation</h4><pre>{_e(f.remediation)}</pre>'
                     f'</div>'
                 )
             rows += (

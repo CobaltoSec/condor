@@ -80,11 +80,10 @@ def test_enrich_preserves_original_remediation():
 
 
 def test_enrich_no_fix_returns_original():
-    # A finding for a category/platform with no specific or generic entry
-    f = _finding(OWASPCategory.ASI02)  # ASI02 has no specific entries, only generic via ASI07
-    # ASI02 has no entry at all in _REMEDIATIONS — finding should be returned unchanged
+    # ASI02 now has a generic entry; a platform not in the specific list falls back to generic
+    f = _finding(OWASPCategory.ASI02)
     result = enrich_findings([f], "crewai")
-    assert result[0].remediation == f.remediation
+    assert "Sanitize tool parameter inputs" in result[0].remediation
 
 
 def test_enrich_multiple_findings():

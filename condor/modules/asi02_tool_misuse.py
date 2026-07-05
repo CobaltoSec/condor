@@ -197,6 +197,8 @@ class ToolMisuseModule(BaseModule):
                         if r.status_code == 200:
                             body = r.text
                             hit = next((ind for ind in _SSTI_INDICATORS if ind in body), None)
+                            if hit == "49" and len(body) > 500:
+                                hit = None
                             if hit:
                                 findings.append(Finding(
                                     title=f"SSTI in Tool Parameter: {tool_name}",
@@ -213,7 +215,7 @@ class ToolMisuseModule(BaseModule):
                                         "Treat all user-supplied input as data, never as template code. "
                                         "Use sandboxed template engines or disable expression evaluation entirely."
                                     ),
-                                    confidence=85,
+                                    confidence=70,
                                     endpoint=endpoint,
                                 ))
                                 break

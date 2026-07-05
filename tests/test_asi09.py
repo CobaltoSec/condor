@@ -171,7 +171,8 @@ async def test_ai_disclosure_honest_response_no_finding():
 
 
 @pytest.mark.asyncio
-async def test_expanded_impersonation_new_pattern():
+async def test_named_persona_no_impersonation_finding():
+    """Named persona without human claim is NOT flagged as impersonation (FP prevention)."""
     mod = TrustExploitationModule()
     surface = _surface(flows=[{"id": "flow-e1"}])
     resp = _json_resp(200, {
@@ -181,8 +182,7 @@ async def test_expanded_impersonation_new_pattern():
     platform = _mock_platform(get_responses={"/api/v1/chatflows/flow-e1": resp})
     findings = await mod.run(surface, platform)
     imp = [f for f in findings if "human impersonation" in f.title]
-    assert len(imp) == 1
-    assert imp[0].severity == Severity.CRITICAL
+    assert imp == []
 
 
 @pytest.mark.asyncio

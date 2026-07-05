@@ -2,7 +2,37 @@
 
 ## Bloque activo
 
-— (ninguno abierto)
+### RT-CONDOR-CFP — Curar findings E2E + case study para conferencia
+
+**Objetivo**: verificar manualmente los 10 findings del primer scan real (Flowise 1.8.2), documentarlos como case study y preparar el material para submission (Ekoparty u otra conf).
+
+**Pre-requisito**: Flowise 1.8.2 corriendo en `:3002` (`docker start flowise-1.8`). Ollama en descarga (`:11434`).
+
+**D1 — Triage de los 10 findings del primer scan**
+- Verificar manualmente cada finding: ¿es real? ¿hay FP?
+- Scan guardado en `condor-sessions/scan-20260704-222126/`
+- Findings: 4 CRITICAL (code exec × 2, credentials, apikey), 3 HIGH (vectorstore, variables, chatflows), 1 MEDIUM (tools), 2 LOW (generic endpoints)
+- Criterio: tabla con finding / veredicto (TP/FP/Enhancement) / evidencia manual
+
+**D2 — Agregar chatflow de prueba a Flowise 1.8.2**
+- POST `/api/v1/chatflows` para crear un flow con systemMessage real
+- Repetir scan con flow creado → ASI01 / ASI09 / ASI05 (inference) deberían disparar
+- Criterio: scan con ≥ 15 findings, incluye ASI01 y ASI09
+
+**D3 — Scan contra Ollama** (una vez que la imagen termine de bajar)
+- `condor scan --url http://localhost:11434 --platform ollama --format both`
+- Criterio: ≥ 1 finding real documentado (model listing sin auth, write endpoint)
+
+**D4 — HTML report del scan final**
+- `--format html` → abrir en browser, capturar screenshot para CFP
+- Criterio: screenshot del reporte con ≥ 3 findings CRITICAL/HIGH con evidencia colapsada
+
+**D5 — Draft de abstract CFP**
+- 300 palabras máx, estructura: problema / tool / demo / impacto
+- Targets: Ekoparty (Buenos Aires, octubre), DragonJAR (Colombia), o similar
+- Criterio: draft listo en `docs/cfp-abstract.md`
+
+Talla estimada: M
 
 ---
 
@@ -21,19 +51,6 @@ Items diferidos de V08 (media prioridad) + nuevas ideas:
 - **Haystack/hayhooks adapter**: `GET /pipelines`, `POST /pipeline/run/{name}`. Sin auth por default.
 
 Talla estimada: M
-
----
-
-### RT-CONDOR-CFP — Case study con findings reales
-
-Requiere instancia Flowise 1.8.x (o Ollama para demo más simple):
-```
-docker run -d --name flowise -p 3001:3000 flowiseai/flowise:1.8.2
-condor scan --url http://localhost:3001 --platform flowise --format both
-```
-- Documentar findings reales para submission a Ekoparty u otra conf
-- Con **V07** completado (HTML report + timestamps) el entregable es mucho más sólido
-- Con **Ollama** adapter (V06) se suma un target sin auth sin necesidad de configurar Flowise
 
 ---
 
@@ -60,7 +77,7 @@ condor scan --url http://localhost:3001 --platform flowise --format both
 | rogue-agents | ASI10 | ✅ |
 
 **Plataformas:** `flowise` · `generic` · `langflow` · `dify` · `autogen` · `n8n` · `llamaindex` · `crewai` · `langgraph` · `ollama` · `openai-compat`  
-**Cobertura:** 10/10 módulos OWASP ASI · 256 tests passing  
+**Cobertura:** 10/10 módulos OWASP ASI · 269 tests passing  
 **Output:** JSON · SARIF 2.1.0 · HTML · JUnit XML · `--stdout`  
 **Auth:** `--api-key` / `--username` / `--password` / env vars · `--proxy` · `--insecure`  
 **DX:** `--min-severity` · `--baseline` / `--save-baseline` · `--config` (condor.yaml) · módulos en paralelo · deduplicación  

@@ -237,6 +237,27 @@ async def test_description_false_positive_url():
 
 
 @pytest.mark.asyncio
+async def test_osv_skips_generic_name():
+    """Tools named with generic identifiers ('search', 'calculator', etc.) skip OSV lookup."""
+    m = SupplyChainModule()
+    surface = _surface(
+        tools=[{"name": "search", "description": "Searches the web for information"}],
+        auth_required=True,
+    )
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.post = AsyncMock()
+        mock_client_cls.return_value = mock_client
+
+        findings = await m.run(surface, _platform_stub())
+
+    mock_client.post.assert_not_called()
+    assert not any("CVE" in f.title for f in findings)
+
+
+@pytest.mark.asyncio
 async def test_description_injection_sentence_pattern():
     """Sentence-level injection pattern must trigger finding."""
     m = SupplyChainModule()

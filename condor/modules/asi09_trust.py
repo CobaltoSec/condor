@@ -20,7 +20,6 @@ def _is_api_response(r) -> bool:
 
 _HUMAN_IMPERSONATION_PATTERNS = [
     re.compile(r"i am a human|i'm a person|you are talking to a real|not an ai|i am not an ai", re.IGNORECASE),
-    re.compile(r"\bmy name is \w+\b", re.I),
     re.compile(r"\bI am (a |an )?(human|real person|live agent|human agent)\b", re.I),
     re.compile(r"\b(speaking|chatting|talking) with a (human|person|real person)\b", re.I),
     re.compile(r"\bhuman (agent|support|representative|advisor|consultant)\b", re.I),

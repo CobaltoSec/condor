@@ -21,6 +21,12 @@ _INJECTION_PATTERNS = [
 
 _MAX_TOOLS_OSV = 10
 
+_GENERIC_NAMES_SKIP_OSV = frozenset({
+    "search", "file", "calculator", "json", "text", "web", "http", "api",
+    "tool", "helper", "utils", "chat", "message", "data", "query", "fetch",
+    "get", "post", "run", "execute", "retriever", "memory", "agent", "chain",
+})
+
 
 def _tool_name(tool: dict) -> str | None:
     return tool.get("name") or tool.get("packageName") or tool.get("package")
@@ -121,6 +127,8 @@ class SupplyChainModule(BaseModule):
                 if not tname or tname in checked:
                     continue
                 checked.add(tname)
+                if tname.lower() in _GENERIC_NAMES_SKIP_OSV:
+                    continue
                 tver = _tool_version(tool)
 
                 npm_vulns = await _query_osv_ecosystem(client, tname, tver, "npm")

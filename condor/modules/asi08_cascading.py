@@ -48,7 +48,7 @@ _QUEUE_ENDPOINTS = [
 
 _CANCEL_ENDPOINT = "/api/v1/queue/condor-probe"
 
-_BURST_SIZE = 10
+_BURST_SIZE = 30
 _BURST_PROBE_PAYLOAD = {"question": "condor-probe", "stream": False}
 
 

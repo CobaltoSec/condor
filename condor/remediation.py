@@ -32,6 +32,34 @@ _REMEDIATIONS: dict[tuple[str, str], dict] = {
             "# 3. Use an LLM-based guardrail layer (e.g. NeMo Guardrails)"
         ),
     },
+    # ASI02 — Tool Misuse (path traversal, SSRF, SSTI)
+    ("ASI02", "flowise"): {
+        "title": "Disable unauthenticated tool execution in Flowise",
+        "code": (
+            "# Enable Flowise authentication to block unauthenticated tool execution:\n"
+            "FLOWISE_USERNAME=admin\n"
+            "FLOWISE_PASSWORD=your-strong-password\n"
+            "# Restrict /api/v1/node-load-method/* via reverse proxy if needed:\n"
+            "# location /api/v1/node-load-method/ { deny all; }"
+        ),
+    },
+    ("ASI02", "generic"): {
+        "title": "Sanitize tool parameter inputs and restrict outbound requests",
+        "code": (
+            "# Path traversal — validate and jail file paths:\n"
+            "import os\n"
+            "SAFE_ROOT = '/app/data'\n"
+            "def safe_path(user_input):\n"
+            "    p = os.path.realpath(os.path.join(SAFE_ROOT, user_input))\n"
+            "    if not p.startswith(SAFE_ROOT):\n"
+            "        raise ValueError('Path traversal denied')\n"
+            "    return p\n\n"
+            "# SSRF — block RFC-1918 and link-local in egress proxy (nginx):\n"
+            "# geo $blocked_ip { default 0; 169.254.0.0/16 1; 10.0.0.0/8 1; 172.16.0.0/12 1; 192.168.0.0/16 1; }\n\n"
+            "# SSTI — never eval user input as template code:\n"
+            "# Use sandboxed Jinja2: jinja2.sandbox.SandboxedEnvironment()"
+        ),
+    },
     # ASI03 — Privilege Abuse
     ("ASI03", "flowise"): {
         "title": "Enable Flowise authentication via environment variables",
