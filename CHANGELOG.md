@@ -1,5 +1,45 @@
 # Changelog
 
+## [RT-CONDOR-V08] — 2026-07-04 — INTEGRATIONS + ECOSYSTEM
+
+- **GitHub Actions**: composite action `.github/actions/condor-scan/action.yml` — inputs `url / platform / format / fail-on / api-key / exclude-module`; outputs `sarif-file / report-file / html-file`; workflow de ejemplo con SARIF upload a GitHub Code Scanning; CI matrix Python 3.11/3.12; `Dockerfile` python:3.11-slim
+- **Remediation Advisor**: `condor/remediation.py` — 22 entries plataforma × ASI (flowise/langflow/n8n/ollama/langgraph/openai-compat/generic); `enrich_findings(findings, platform)` appenda fix específico al campo `remediation` de cada finding (pydantic `model_copy`); fallback a generic si no hay entry específica; wired en `_scan()` post-dedup
+- **Plugin system**: `_load_plugins()` en `cli.py` via `importlib.metadata.entry_points`; grupos `condor.modules` y `condor.platforms`; `pip install condor-module-xyz` → auto-discovery sin tocar el core
+- **Config file**: `condor/config.py` — carga `condor.yaml` / `.condor.yaml` / `~/.condor.yaml`; flag `--config`/`-c`; prioridad CLI > env > config > defaults; solo aplica a parámetros `None` para no pisar flags explícitos
+- 11 tests nuevos (remediation); suite total: **256/256 passing**
+
+## [RT-CONDOR-V07] — 2026-07-04 — DX + REPORTING
+
+- **HTML report** (`--format html`): `condor/html_report.py` — self-contained, dark mode, severity badges, secciones colapsables de evidencia/remediación, XSS-safe via `html.escape`
+- **JUnit XML** (`--format junit`): `condor/junit_report.py` — findings como `<testcase><failure>` agrupados por owasp_id; Jenkins/GitLab/CircleCI nativos
+- **Baseline/suppression**: `condor/baseline.py` — fingerprint SHA-256[:16] de `(owasp_id|title|endpoint)`; `--baseline` suprime findings conocidos, `--save-baseline` persiste estado actual; clave para uso en CI/CD sin bloquear riesgos aceptados
+- **`ScanResult` timestamps**: `started_at`, `finished_at`, `duration_seconds` en `core/models.py`
+- **Proxy + insecure**: `BasePlatform(proxy, verify_ssl)` → `httpx.AsyncClient(proxy=..., verify=False)` — Burp Suite integration
+- **Env vars**: `CONDOR_API_KEY` / `CONDOR_USERNAME` / `CONDOR_PASSWORD` como fallback de flags CLI
+- **Módulos en paralelo**: `asyncio.gather` sobre los 10 módulos ASI — ~70% reducción de tiempo de scan
+- **Deduplicación**: `_dedup_findings()` por clave `(owasp_id, title, endpoint)` antes de escribir report
+- **`--stdout`**, **`--min-severity`**, **`--fail-on`**, exit codes 0/1/2 (clean/findings/error)
+- 76 tests nuevos (html, junit, baseline, cli); suite total: **245/245 passing**
+
+## [RT-CONDOR-V06] — 2026-07-04 — PLATFORMS
+
+- **3 nuevos platform adapters**: `langgraph` (LangGraph Platform — `/assistants`, `/threads`, `/store/items`, `/runs`; sin auth en Docker self-hosted), `ollama` (`/api/tags`, `/api/ps`, write endpoint probe), `openai-compat` (`/v1/models`, `/v1/assistants`, `/v1/vector_stores`, `/v1/files`; cubre vLLM, LocalAI, LM Studio)
+- **Generic OpenAPI auto-parsing**: 7 candidate paths (`/openapi.json`, `/swagger.json`, `/api-docs`, etc.) → extrae endpoints automáticamente; GraphQL introspection probe (`__schema`)
+- 42 tests nuevos (3 platforms + generic); suite total: **211/211 passing**
+
+## [RT-CONDOR-V05] — 2026-07-04 — MODULE-DEPTH
+
+- **ASI01**: indirect injection via tool output (`_check_tool_response_injection()`), 4 jailbreak payloads (DAN, developer mode, no-restrictions, CONDOR_INJECTED × 3)
+- **ASI02**: SSTI probes (`{{7*7}}`, `${7*7}`), Kubernetes API SSRF (`10.96.0.1`, `kubernetes.default.svc`)
+- **ASI03**: IDOR check IDs 1-5 + UUIDs, mass assignment probe (`role: admin`)
+- **ASI04**: ecosistema PyPI en OSV.dev, regex de inyección sentence-level (`(ignore|disregard).{0,20}(instruction|above|previous)`)
+- **ASI06**: adversarial chunk injection activa — CRITICAL si el endpoint acepta el documento
+- **ASI07**: origin forgery test (`X-Forwarded-For: 127.0.0.1`, `X-Internal-Request: true`)
+- **ASI08**: burst probe 10 requests concurrentes (reemplaza single-probe de rate limit)
+- **ASI09**: active AI disclosure test + 7 impersonation patterns extendidos
+- **ASI10**: cleanup robusto (DELETE inmediato post-creación), detección de rogue agents existentes
+- 41 tests nuevos; suite total: **169/169 passing**
+
 ## [RT-CONDOR-V04] — 2026-07-04 — SCALE + AUTH + DEPTH + PLATFORMS
 
 - **CLI (SCALE)**: `--format json|sarif|both|table` reemplaza `--sarif`; `--exclude-module` (repeatable, warn en nombre desconocido); `--concurrency N` para batch scan (`asyncio.Semaphore` + `gather`); progress bar `rich.Progress` en loop de módulos y en batch; `verbose=False` en batch para suprimir output inline

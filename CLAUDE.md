@@ -13,28 +13,36 @@ Agentic AI security scanner — OWASP ASI Top 10. Análogo a Corvus pero para pl
 
 ```
 condor/
-  core/models.py        — Finding, Severity, OWASPCategory, AgentSurface, ScanResult
-  platforms/base.py     — BasePlatform (httpx async context manager)
+  core/models.py        — Finding, Severity, OWASPCategory, AgentSurface, ScanResult (+ timestamps)
+  platforms/base.py     — BasePlatform (httpx async context manager; proxy/verify_ssl support)
   platforms/flowise.py    — Flowise REST API v1
-  platforms/generic.py    — Generic HTTP probe
+  platforms/generic.py    — Generic HTTP probe + OpenAPI/Swagger auto-parsing + GraphQL introspection
   platforms/langflow.py   — Langflow REST API v1
   platforms/dify.py       — Dify console API
   platforms/n8n.py        — n8n workflow automation
   platforms/llamaindex.py — LlamaIndex agents server (FastAPI)
   platforms/crewai.py     — CrewAI serve (FastAPI)
+  platforms/langgraph.py  — LangGraph Platform (threads, store, runs)
+  platforms/ollama.py     — Ollama local model server
+  platforms/openai_compat.py — OpenAI-compatible (vLLM, LocalAI, LM Studio)
   modules/base.py       — BaseModule (abstracto, run() → list[Finding])
   modules/asi01_goal_hijack.py   — ASI01: prompt injection
-  modules/asi02_tool_misuse.py   — ASI02: path traversal, SSRF, cred exposure
-  modules/asi03_privilege.py     — ASI03: unauth endpoint access
-  modules/asi04_supply_chain.py  — ASI04: CVE via OSV.dev, poisoned descriptions
+  modules/asi02_tool_misuse.py   — ASI02: path traversal, SSRF, SSTI, cred exposure
+  modules/asi03_privilege.py     — ASI03: unauth endpoint access, IDOR, mass assignment
+  modules/asi04_supply_chain.py  — ASI04: CVE via OSV.dev (npm+PyPI), poisoned descriptions
   modules/asi05_code_exec.py     — ASI05: eval/exec sinks, RCE endpoints
-  modules/asi06_memory_poisoning.py — ASI06: vectorstore access sin auth, doc injection
-  modules/asi07_inter_agent.py   — ASI07: inter-agent channels, agentflow enumeration
-  modules/asi08_cascading.py     — ASI08: rate limits ausentes, task queue expuesta
-  modules/asi09_trust.py         — ASI09: system prompt exposure, human impersonation
-  modules/asi10_rogue.py         — ASI10: agent/tool creation sin auth, webhooks
-  sarif.py              — to_sarif() → SARIF 2.1.0 (usado por cli.py --format sarif|both)
-  cli.py                — registro de _ALL_MODULES y _PLATFORMS; --format; --exclude-module; --concurrency; --api-key; --targets
+  modules/asi06_memory_poisoning.py — ASI06: vectorstore access sin auth, adversarial injection
+  modules/asi07_inter_agent.py   — ASI07: inter-agent channels, origin forgery
+  modules/asi08_cascading.py     — ASI08: burst probe rate limits, task queue expuesta
+  modules/asi09_trust.py         — ASI09: system prompt exposure, AI disclosure, impersonation
+  modules/asi10_rogue.py         — ASI10: agent/tool creation sin auth, webhooks, rogue detection
+  sarif.py              — to_sarif() → SARIF 2.1.0
+  html_report.py        — to_html() → reporte self-contained con dark mode y collapsibles
+  junit_report.py       — to_junit() → JUnit XML para Jenkins/GitLab/CircleCI
+  baseline.py           — fingerprint SHA-256, load/save/apply baseline (suppression)
+  config.py             — carga condor.yaml / .condor.yaml / ~/.condor.yaml
+  remediation.py        — enrich_findings(findings, platform) → remediaciones específicas por plataforma
+  cli.py                — _ALL_MODULES, _PLATFORMS, _load_plugins(); todos los flags de scan
 ```
 
 ## Agregar un módulo nuevo
@@ -71,15 +79,25 @@ condor/
 - `BasePlatform` expone `get`, `post`, `put`, `delete` — todos asientan que `self._client` esté abierto.
 - Auth: `BasePlatform.__init__` acepta `api_key`, `username`, `password`. Plataformas construyen headers estáticos en `__init__`; Langflow y Dify hacen pre-auth POST en `_authenticate()` (hook llamado en `__aenter__`).
 - CLI auth flags: `--api-key` / `--username` / `--password` — threaded a `_scan()` y a la construcción del platform.
-- Output format: `--format json|sarif|both|table` (reemplaza `--sarif`). `both` escribe `report.json` + `report.sarif`.
+- Output format: `--format json|sarif|both|table|html|junit`. `both` escribe `report.json` + `report.sarif`.
 - Batch scan concurrente: `--targets <file>` con `--concurrency N` (default 5). `asyncio.gather` + `asyncio.Semaphore`. `_scan()` acepta `verbose=False` para suprimir output inline en batch.
 - Progress bar: `rich.Progress` en loop de módulos y en batch scan (outer progress).
 - `--exclude-module` / `-x` (repeatable): skip módulos específicos con warning si nombre desconocido.
+- `--baseline` / `--save-baseline`: suppression file por fingerprint SHA-256[:16] de `(owasp_id|title|endpoint)`.
+- `--proxy` / `--insecure`: Burp Suite integration. `BasePlatform(proxy, verify_ssl)`.
+- `--min-severity`: filtra findings por debajo del threshold en el output.
+- `--config` / `-c`: carga `condor.yaml` con defaults. Prioridad: CLI > env > config > hardcoded.
+- `--stdout`: emite JSON a stdout para piping (`| jq`). Suprime progress bar.
+- Exit codes: 0=clean, 1=findings ≥ threshold, 2=config error.
+- Módulos paralelos: `asyncio.gather` sobre los 10 módulos ASI → ~70% reducción de tiempo de scan.
+- Deduplicación: `_dedup_findings()` por `(owasp_id, title, endpoint)` antes de output.
+- Remediation Advisor: `enrich_findings(findings, platform)` wired post-dedup — appenda fix específico a cada finding.
+- Plugin system: `_load_plugins()` via `importlib.metadata.entry_points(group="condor.modules")` — auto-discovery de módulos y plataformas externas.
 - Flowise 2.x+ y 3.x fuerzan workspace auth por defecto (SQLite). Para E2E con findings: usar `flowiseai/flowise:1.8.x` o instancia sin credenciales de versión <2.x.
 - ASI01: detección semántica (compliance phrases) con confidence 60, además de markers exactos (90). Soporta Dify y Langflow endpoints. 8 payloads incluyendo base64, prompt continuation, Unicode, tool-result simulation.
-- ASI02: payloads URL-encoded + double-encoded para path traversal; GCP/Azure IMDS + IPv6 para SSRF. Indicadores extendidos.
+- ASI02: payloads URL-encoded + double-encoded para path traversal; GCP/Azure IMDS + IPv6 + Kubernetes para SSRF; SSTI probes.
 - ASI05: OS command probe activo (`child_process.execSync('id')` para JS, `subprocess.check_output(['id'])` para Python). Output confirmation para AutoGen y Langflow. Blind timing probe para entornos non-reflective.
 
-## Plataformas soportadas (8)
+## Plataformas soportadas (11)
 
-`flowise` · `generic` · `langflow` · `dify` · `autogen` · `n8n` · `llamaindex` · `crewai`
+`flowise` · `generic` · `langflow` · `dify` · `autogen` · `n8n` · `llamaindex` · `crewai` · `langgraph` · `ollama` · `openai-compat`
