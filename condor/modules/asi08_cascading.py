@@ -228,24 +228,7 @@ class CascadingFailuresModule(BaseModule):
                     confidence=85,
                     endpoint=_CANCEL_ENDPOINT,
                 ))
-            elif r.status_code == 404 and _is_api_response(r):
-                findings.append(Finding(
-                    title=f"Job management endpoint accessible without auth: {_CANCEL_ENDPOINT}",
-                    severity=Severity.MEDIUM,
-                    owasp_id=self.owasp_id,
-                    description=(
-                        f"The endpoint {_CANCEL_ENDPOINT} returned 404 (task not found) for an "
-                        f"unauthenticated DELETE request. The job management API is accessible without "
-                        f"authentication — a valid job ID would allow task cancellation."
-                    ),
-                    evidence=f"DELETE {_CANCEL_ENDPOINT} → 404 (auth not enforced, task ID mismatch)",
-                    remediation=(
-                        "Return 401 Unauthorized for all unauthenticated requests to job management "
-                        "endpoints, regardless of whether the resource exists."
-                    ),
-                    confidence=70,
-                    endpoint=_CANCEL_ENDPOINT,
-                ))
+            # 404 alone is ambiguous (endpoint may not exist at all) — not reported
         except Exception:
             pass
         return findings

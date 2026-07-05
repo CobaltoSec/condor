@@ -132,14 +132,14 @@ async def test_job_cancellation_accepted_high():
 
 
 @pytest.mark.asyncio
-async def test_job_endpoint_accessible_medium():
+async def test_job_cancellation_404_not_reported():
+    """DELETE returns 404 → ambiguous (endpoint may not exist), no finding."""
     mod = CascadingFailuresModule()
     resp = _json_resp(404, {"error": "not found"})
     platform = _mock_platform({"/api/v1/queue/condor-probe": resp})
     findings = await mod.run(_surface(), platform)
-    c = [f for f in findings if "accessible without auth" in f.title]
-    assert len(c) == 1
-    assert c[0].severity == Severity.MEDIUM
+    c = [f for f in findings if "accessible without auth" in f.title or "cancellation" in f.title]
+    assert len(c) == 0
 
 
 @pytest.mark.asyncio

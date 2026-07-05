@@ -78,6 +78,17 @@ _GENERIC_ENDPOINTS = [
 ]
 
 
+def _is_api_response(r) -> bool:
+    """Return False if response is HTML (SPA catch-all), True for JSON/API responses."""
+    try:
+        ct = r.headers.get("content-type", "")
+        if isinstance(ct, str):
+            return "text/html" not in ct
+    except Exception:
+        pass
+    return True
+
+
 def _tool_name(tool: dict) -> str:
     return tool.get("name") or tool.get("id") or "unknown"
 
@@ -278,7 +289,9 @@ class ToolMisuseModule(BaseModule):
             for endpoint in _GENERIC_ENDPOINTS:
                 try:
                     r = await platform.post(endpoint, json={"name": "calculator", "input": "1+1", "expression": "1+1"})
-                    if r.status_code == 200:
+                    body = r.text.strip()
+                    # Require JSON API response with non-trivial content (not SPA HTML, not empty list/object)
+                    if r.status_code == 200 and _is_api_response(r) and len(body) > 2:
                         findings.append(Finding(
                             title=f"Tool execution endpoint reachable without authentication: {endpoint}",
                             severity=Severity.LOW,
@@ -287,7 +300,7 @@ class ToolMisuseModule(BaseModule):
                                 f"The endpoint {endpoint} responded to an unauthenticated tool "
                                 f"execution request. This may allow arbitrary tool invocation."
                             ),
-                            evidence=f"POST {endpoint} → 200 OK",
+                            evidence=f"POST {endpoint} → 200 OK ({len(body)} bytes)",
                             remediation="Require authentication on all tool execution endpoints.",
                             confidence=60,
                             endpoint=endpoint,

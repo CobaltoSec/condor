@@ -97,39 +97,40 @@ class CodeExecutionModule(BaseModule):
                         ))
                         continue
 
-                # Fall back to os.platform() probe
+                # Fall back to os.platform() probe — only report if output reflected
                 r = await platform.post(endpoint, json=_JS_OS_PROBE)
                 if r.status_code == 200 and _is_api_response(r):
                     body = r.text
                     confirmed = any(ind in body.lower() for ind in _OS_INDICATORS)
-                    findings.append(Finding(
-                        title=f"Unauthenticated code execution via {endpoint}",
-                        severity=Severity.CRITICAL,
-                        owasp_id=self.owasp_id,
-                        description=(
-                            f"The Flowise endpoint {endpoint} executes arbitrary JavaScript "
-                            f"without authentication. An attacker can achieve full server-side "
-                            f"code execution, read files, execute system commands, or pivot "
-                            f"to internal services."
-                        ),
-                        evidence=(
-                            f"POST {endpoint} with JS payload → 200 OK. "
-                            + (f"OS info in response: {body[:200]}" if confirmed else "Endpoint accepted code payload.")
-                        ),
-                        remediation=(
-                            "Enable Flowise authentication (FLOWISE_USERNAME + FLOWISE_PASSWORD). "
-                            "Restrict the node-load-method endpoint to authenticated users only."
-                        ),
-                        confidence=95 if confirmed else 75,
-                        endpoint=endpoint,
-                    ))
-                    continue
+                    if confirmed:
+                        findings.append(Finding(
+                            title=f"Unauthenticated code execution via {endpoint}",
+                            severity=Severity.CRITICAL,
+                            owasp_id=self.owasp_id,
+                            description=(
+                                f"The Flowise endpoint {endpoint} executes arbitrary JavaScript "
+                                f"without authentication. An attacker can achieve full server-side "
+                                f"code execution, read files, execute system commands, or pivot "
+                                f"to internal services."
+                            ),
+                            evidence=f"POST {endpoint} with JS payload → 200 OK. OS info in response: {body[:200]}",
+                            remediation=(
+                                "Enable Flowise authentication (FLOWISE_USERNAME + FLOWISE_PASSWORD). "
+                                "Restrict the node-load-method endpoint to authenticated users only."
+                            ),
+                            confidence=95,
+                            endpoint=endpoint,
+                        ))
+                        continue
 
-                # Blind timing probe for non-reflective deployments
+                # Blind timing probe — warm up first to isolate network latency
+                await platform.post(endpoint, json=_JS_OS_PROBE)
                 t0 = time.monotonic()
                 r = await platform.post(endpoint, json=_JS_TIMING_PROBE)
                 elapsed = time.monotonic() - t0
-                if r.status_code == 200 and _is_api_response(r) and elapsed >= 0.25:
+                # Require 250ms above baseline; use 0.5s threshold to avoid false positives
+                # from cold TCP connections or server-side scheduling jitter
+                if r.status_code == 200 and _is_api_response(r) and elapsed >= 0.5:
                     findings.append(Finding(
                         title=f"Potential blind code execution via timing side-channel: {endpoint}",
                         severity=Severity.HIGH,

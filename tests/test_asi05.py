@@ -97,7 +97,7 @@ async def test_flowise_rce_os_confirmed():
 
 @pytest.mark.asyncio
 async def test_flowise_rce_os_unconfirmed():
-    """cmd no indicators; os probe 200 with no os keywords → CRITICAL, confidence=75."""
+    """cmd no indicators; os probe 200 but no os keywords → no finding (FP prevention)."""
     mod = CodeExecutionModule()
     plat = MagicMock()
 
@@ -106,14 +106,14 @@ async def test_flowise_rce_os_unconfirmed():
         if "execSync" in code:
             return _resp_200("ok")
         if "platform()" in code:
-            return _resp_200("accepted")  # no OS keyword
+            return _resp_200("[]")  # Flowise node-load-method returns empty list, not OS name
         return resp_404
 
     plat.post = _post
     findings = await mod.run(_surface(), plat)
     rce = [f for f in findings if "code execution" in f.title.lower()]
-    assert len(rce) >= 1
-    assert rce[0].confidence == 75
+    # No finding — 200 with no OS indicators means endpoint loaded schema, not executed code
+    assert len(rce) == 0
 
 
 @pytest.mark.asyncio

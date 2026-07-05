@@ -23,6 +23,9 @@ _SENSITIVE = [
     ("/api/v1/variables",    Severity.HIGH,     "environment variables and config"),
     ("/api/v1/chatflows",    Severity.HIGH,     "all agent workflows"),
     ("/api/v1/tools",        Severity.MEDIUM,   "tool definitions and configurations"),
+    # Ollama
+    ("/api/tags",            Severity.MEDIUM,   "installed model inventory"),
+    ("/api/ps",              Severity.LOW,      "running model process list"),
     ("/v1/workspaces",       Severity.HIGH,     "Dify workspace data"),
     ("/studio/api/teams",    Severity.HIGH,     "AutoGen Studio team data"),
     ("/api/v1/flows",        Severity.HIGH,     "Langflow flow definitions"),
@@ -35,6 +38,17 @@ _WRITE_ENDPOINTS = [
     ("POST", "/api/v1/variables",  Severity.HIGH,     "inject environment variables"),
 ]
 
+
+# Flowise 3.x header bypass (CVE-2026-30820, patched in 3.0.13)
+# Middleware in packages/server/src/index.ts short-circuits auth on this header.
+_BYPASS_HEADER = {"x-request-from": "internal"}
+_BYPASS_ENDPOINTS = [
+    ("/api/v1/apikey",       Severity.CRITICAL, "platform API keys"),
+    ("/api/v1/credentials",  Severity.CRITICAL, "stored credentials"),
+    ("/api/v1/chatflows",    Severity.HIGH,     "agent workflows"),
+    ("/api/v1/variables",    Severity.HIGH,     "environment variables"),
+    ("/api/v1/tools",        Severity.MEDIUM,   "tool configurations"),
+]
 
 _IDOR_ENDPOINTS = [
     "/api/v1/chatflows/1",
@@ -84,6 +98,38 @@ class PrivilegeAbuseModule(BaseModule):
             except Exception:
                 pass
         return []
+
+    async def _check_header_bypass(self, platform: BasePlatform) -> list[Finding]:
+        findings: list[Finding] = []
+        for endpoint, severity, what in _BYPASS_ENDPOINTS:
+            try:
+                r_base = await platform.get(endpoint)
+                if r_base.status_code not in (401, 403):
+                    continue  # Not auth-gated — covered by main read probe
+
+                r_bypass = await platform.get(endpoint, headers=_BYPASS_HEADER)
+                if r_bypass.status_code == 200 and _is_api_response(r_bypass):
+                    findings.append(Finding(
+                        title=f"Auth bypass via x-request-from:internal: {endpoint}",
+                        severity=severity,
+                        owasp_id=self.owasp_id,
+                        description=(
+                            f"Flowise endpoint {endpoint} bypasses authentication when the "
+                            f"'x-request-from: internal' header is present, exposing {what}. "
+                            f"Any unauthenticated attacker can spoof this header to access "
+                            f"protected data. (CVE-2026-30820, affects Flowise ≤ 3.0.12)"
+                        ),
+                        evidence=(
+                            f"GET {endpoint} → {r_base.status_code} (auth required). "
+                            f"GET {endpoint} + x-request-from:internal → 200 OK (bypassed)"
+                        ),
+                        remediation="Update Flowise to 3.0.13+, which validates the x-request-from header server-side.",
+                        confidence=98,
+                        endpoint=endpoint,
+                    ))
+            except Exception:
+                pass
+        return findings
 
     async def run(self, surface: AgentSurface, platform: BasePlatform) -> list[Finding]:
         findings: list[Finding] = []
@@ -182,4 +228,5 @@ class PrivilegeAbuseModule(BaseModule):
                 pass
 
         findings.extend(await self._check_idor(platform))
+        findings.extend(await self._check_header_bypass(platform))
         return findings

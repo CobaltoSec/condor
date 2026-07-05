@@ -1,5 +1,18 @@
 # Changelog
 
+## [RT-CONDOR-CFP] — 2026-07-05 — FP REDUCTION + CVE DETECTION + CFP MATERIAL
+
+- **Triage E2E**: verificación manual de 10 findings contra Flowise 1.8.2; 5 FPs identificados y eliminados (ASI02 ×2, ASI05 ×2, ASI08 ×1); 8 TPs confirmados en scan final
+- **ASI05 FP fix**: `node-load-method` endpoints no reportan sin OS indicator en body; timing probe con warmup request + threshold 0.5s para evitar cold-connection FP
+- **ASI02 FP fix**: `_is_api_response()` + `len(body) > 2` en generic probe — filtra HTML (SPA catch-all) y responses vacías `[]`
+- **ASI08 FP fix**: DELETE 404 ya no se reporta como auth bypass — solo 200/204 es evidencia real
+- **ASI03 Ollama coverage**: `/api/tags` (MEDIUM) y `/api/ps` (LOW) en `_SENSITIVE` — detecta model inventory sin auth
+- **ASI03 CVE-2026-30820**: `_check_header_bypass()` — probe `x-request-from: internal`; CRITICAL si endpoint protegido flipea 401→200; skip si ya abierto; 3 tests
+- **Scan Ollama**: 2 TPs reales confirmados contra `ollama:latest` en `:11434`
+- **Chatflow E2E**: ASI09 CRITICAL confirmado — system prompt expuesto + modificación sin auth (secret code `ACME-2026-INTERNAL` exfiltrado)
+- **CFP material**: `docs/cfp-abstract.md` — abstract español + inglés + bio; targets Ekoparty/DragonJAR
+- Suite total: **272/272 passing**
+
 ## [RT-CONDOR-PRE-E2E] — 2026-07-04 — FP REDUCTIONS + TEST COVERAGE + FIRST E2E RUN
 
 - **ASI05 test coverage**: `tests/test_asi05.py` — 12 tests cubriendo todas las rutas del módulo RCE (Flowise cmd/os/timing, AutoGen, Langflow); cobertura era 0%, único módulo sin tests

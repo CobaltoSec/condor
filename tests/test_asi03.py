@@ -127,3 +127,76 @@ async def test_idor_html_filtered():
     get_resp["/api/v1/chatflows/00000000-0000-0000-0000-000000000001"] = html_resp
     findings = await mod.run(_surface(), _mock_platform(get_responses=get_resp))
     assert not any("IDOR" in f.title for f in findings)
+
+
+# ── header bypass (CVE-2026-30820) ───────────────────────────────────────────
+
+
+def _mock_platform_with_bypass(bypassed_endpoints: set[str]) -> MagicMock:
+    """Mock that returns 401 normally but 200 when x-request-from:internal is present."""
+    plat = MagicMock()
+    resp_401 = _resp(401, content_type="application/json")
+    resp_404 = _resp(404, content_type="text/plain")
+
+    async def _get(path, **kw):
+        headers = kw.get("headers") or {}
+        if path in bypassed_endpoints:
+            if headers.get("x-request-from") == "internal":
+                return _resp(200, [{"id": "1"}])
+            return resp_401
+        return resp_404
+
+    async def _post(path, **kw):
+        return resp_404
+
+    async def _delete(path, **kw):
+        return resp_404
+
+    plat.get = _get
+    plat.post = _post
+    plat.delete = _delete
+    return plat
+
+
+async def test_header_bypass_detected():
+    """401 without header, 200 with x-request-from:internal → CRITICAL bypass finding."""
+    mod = PrivilegeAbuseModule()
+    plat = _mock_platform_with_bypass({"/api/v1/apikey", "/api/v1/credentials"})
+    findings = await mod.run(_surface(), plat)
+    bypass = [f for f in findings if "x-request-from" in f.title]
+    assert len(bypass) >= 1
+    assert bypass[0].severity == Severity.CRITICAL
+    assert "CVE-2026-30820" in bypass[0].description
+    assert "200 OK (bypassed)" in bypass[0].evidence
+
+
+async def test_header_bypass_not_triggered_when_no_auth():
+    """200 without header → endpoint already open, bypass probe skips it."""
+    mod = PrivilegeAbuseModule()
+    # All endpoints return 200 without auth — main probe handles this, bypass skips
+    get_resp = {"/api/v1/apikey": _resp(200, [{"apiKey": "abc"}])}
+    findings = await mod.run(_surface(), _mock_platform(get_responses=get_resp))
+    assert not any("x-request-from" in f.title for f in findings)
+
+
+async def test_header_bypass_not_triggered_when_patched():
+    """401 without header AND 401 with header → patched (3.0.13+), no finding."""
+    mod = PrivilegeAbuseModule()
+    # Patched instance: header is ignored, always returns 401
+    resp_401 = _resp(401, content_type="application/json")
+    plat = MagicMock()
+
+    async def _get(path, **kw):
+        return resp_401  # auth enforced regardless of headers
+
+    async def _post(path, **kw):
+        return resp_401
+
+    async def _delete(path, **kw):
+        return resp_401
+
+    plat.get = _get
+    plat.post = _post
+    plat.delete = _delete
+    findings = await mod.run(_surface(), plat)
+    assert not any("x-request-from" in f.title for f in findings)
