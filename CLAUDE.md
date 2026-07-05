@@ -104,14 +104,17 @@ condor/
 - Plugin system: `_load_plugins()` via `importlib.metadata.entry_points(group="condor.modules")` — auto-discovery de módulos y plataformas externas.
 - Flowise 2.x+ y 3.x fuerzan workspace auth por defecto (SQLite). Para E2E con findings: usar `flowiseai/flowise:1.8.x` o instancia sin credenciales de versión <2.x.
 - ASI01: detección semántica (compliance phrases) con confidence 60, además de markers exactos (90). Soporta Dify y Langflow endpoints. 8 payloads incluyendo base64, prompt continuation, Unicode, tool-result simulation.
-- ASI02: payloads URL-encoded + double-encoded para path traversal; GCP/Azure IMDS + IPv6 + Kubernetes para SSRF; SSTI probes.
-- ASI03: `_check_header_bypass()` — probe CVE-2026-30820 (`x-request-from: internal`, Flowise ≤ 3.0.12). Solo dispara si baseline es 401/403; skip si endpoint ya abierto (no duplica con probe principal).
+- ASI02: payloads URL-encoded + double-encoded para path traversal; GCP/Azure IMDS + IPv6 + Kubernetes para SSRF; SSTI probes. `_check_qdrant_ssrf()` — POST `/collections/{name}/snapshots/recover`; skip list incluye 405 (evita FP en plataformas con SPA/catch-all).
+- ASI03: `_check_header_bypass()` — probe CVE-2026-30820 (`x-request-from: internal`, Flowise ≤ 3.0.12). Solo dispara si baseline es 401/403; skip si endpoint ya abierto (no duplica con probe principal). Hayhooks usa `/status` en `_SENSITIVE` (no `/pipelines` — esa ruta no existe); Letta usa `/v1/agents`.
 - ASI05: OS command probe activo (`child_process.execSync('id')` para JS, `subprocess.check_output(['id'])` para Python). Output confirmation para AutoGen y Langflow. Blind timing probe: warmup request previo + threshold 0.5s (evita cold-TCP FP de ~200ms en primer request).
+- ASI06: `_check_vectorstore_collections()` — GET `/collections` (Qdrant) y `/api/v2/tenants/default_tenant/databases/default_database/collections` (Chroma v2; v1 → 410 Gone). `_check_letta_memory_idor()` — GET `/v1/agents/{id}/memory` con IDs canónicos (CWE-639).
 - ASI08: DELETE 404 no se reporta — endpoint puede no existir; solo 200/204 es evidencia de job cancellation sin auth. `_check_rate_limit_burst()` solo dispara en 200/201 — 400/405/422 son FP en plataformas donde el endpoint no existe.
-- Open WebUI `:main` eliminó `WEBUI_AUTH=False` API bypass — `get_current_user()` ya no lo respeta. Para E2E usar `v0.5.20`. OWI v0.5.20 sirve HTML para GET `/api/v1/*` (SPA catch-all) — `_is_api_response()` lo filtra; probes efectivos requieren POST.
+- ASI09: `_check_version_exposure()` detecta `info.version` anidado (formato OpenAPI spec); `/openapi.json` incluido en `_VERSION_DISCLOSURE_ENDPOINTS`. Retorna en el primer finding encontrado.
+- ASI10: `_check_vectorstore_creation()` — Qdrant PUT `/collections/condor-probe` (idempotente; CRITICAL si 200/201, HIGH si 400+); Chroma POST v2 (CRITICAL si 200/201; HIGH si 400/409/422). 409 = collection ya existe → endpoint accesible sin auth.
+- Open WebUI `:main` eliminó `WEBUI_AUTH=False` API bypass — `get_current_user()` ya no lo respeta. Para E2E usar `v0.5.20`. OWI v0.5.20 sirve HTML para GET `/api/v1/*` (SPA catch-all) — `_is_api_response()` lo filtra; probes efectivos requieren POST. OWI v0.5.20 enforces auth en write paths incluso con `WEBUI_AUTH=False` — POST a `/api/v1/functions/create` → 403, POST a `/api/v1/tools/` → 405.
 - `Finding.cwe_id: str | None` — campo opcional, ej. `"CWE-306"`. Usado en SARIF (rule tags) y HTML (badge). NO almacenado en DefectDojo como string — se convierte a `int(cwe_id.split("-")[1])`.
 - Qdrant: usa header `api-key` nativo (no `Authorization: Bearer`).
-- Chroma: `/api/v1/version` retorna bare string `"0.5.11"` (sin JSON wrapper) — parsear con `r.text.strip().strip('"')`.
+- Chroma: `/api/v1/version` retorna bare string `"0.5.11"` (sin JSON wrapper) — parsear con `r.text.strip().strip('"')`. API v1 deprecada → 410 Gone para `/api/v1/collections`; usar `/api/v2/tenants/default_tenant/databases/default_database/collections`.
 - Integrations wiring: `--notify-slack/teams/defectdojo-*` se evalúan post-dedup en `_scan()` con try/except — fallos no bloquean el scan ni el exit code.
 - `condor scaffold --name <slug> --asi <nn>`: genera `condor/modules/asiNN_slug.py` + `tests/test_asiNN_slug.py`; valida regex `^[a-z][a-z0-9_-]*$`; sale con exit 1 si el archivo ya existe.
 

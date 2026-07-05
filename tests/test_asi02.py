@@ -210,3 +210,69 @@ async def test_k8s_ssrf_confirmed():
     ssrf = [f for f in findings if "SSRF via tool URL" in f.title]
     assert len(ssrf) == 1
     assert ssrf[0].severity == Severity.CRITICAL
+
+
+# ── Qdrant SSRF ───────────────────────────────────────────────────────────────
+
+_QDRANT_SSRF_EP = "/collections/condor-probe/snapshots/recover"
+
+
+@pytest.mark.asyncio
+async def test_qdrant_ssrf_confirmed_critical():
+    """Qdrant snapshot recovery returns metadata → CRITICAL SSRF confirmed."""
+    mod = ToolMisuseModule()
+    resp = MagicMock(
+        status_code=200,
+        text="ami-id\ninstance-id\niam/\n",
+        content=b"ami-id",
+    )
+    resp.headers = {"content-type": "application/json"}
+    platform = _mock_platform({_QDRANT_SSRF_EP: resp})
+    findings = await mod.run(_surface(), platform)
+    ssrf = [f for f in findings if "Qdrant" in f.title and "SSRF" in f.title]
+    assert len(ssrf) == 1
+    assert ssrf[0].severity == Severity.CRITICAL
+    assert ssrf[0].confidence == 95
+    assert ssrf[0].cwe_id == "CWE-918"
+
+
+@pytest.mark.asyncio
+async def test_qdrant_ssrf_accessible_high():
+    """Qdrant snapshot endpoint returns 400 (no auth) → HIGH accessible finding."""
+    mod = ToolMisuseModule()
+    resp = MagicMock(
+        status_code=400,
+        text='{"status": "error", "error": "Wrong input"}',
+        content=b'{"status": "error"}',
+    )
+    resp.headers = {"content-type": "application/json"}
+    platform = _mock_platform({_QDRANT_SSRF_EP: resp})
+    findings = await mod.run(_surface(), platform)
+    ssrf = [f for f in findings if "Qdrant snapshot" in f.title]
+    assert len(ssrf) == 1
+    assert ssrf[0].severity == Severity.HIGH
+    assert ssrf[0].confidence == 70
+
+
+@pytest.mark.asyncio
+async def test_qdrant_ssrf_401_no_finding():
+    """Qdrant snapshot endpoint returns 401 → no SSRF finding (auth enforced)."""
+    mod = ToolMisuseModule()
+    resp = MagicMock(status_code=401, text="Unauthorized", content=b"Unauthorized")
+    resp.headers = {"content-type": "application/json"}
+    platform = _mock_platform({_QDRANT_SSRF_EP: resp})
+    findings = await mod.run(_surface(), platform)
+    ssrf = [f for f in findings if "Qdrant" in f.title]
+    assert ssrf == []
+
+
+@pytest.mark.asyncio
+async def test_qdrant_ssrf_html_response_filtered():
+    """Qdrant snapshot endpoint returns HTML (SPA) → no finding."""
+    mod = ToolMisuseModule()
+    resp = MagicMock(status_code=200, text="<html><body>Not Found</body></html>", content=b"<html>")
+    resp.headers = {"content-type": "text/html; charset=utf-8"}
+    platform = _mock_platform({_QDRANT_SSRF_EP: resp})
+    findings = await mod.run(_surface(), platform)
+    ssrf = [f for f in findings if "Qdrant" in f.title]
+    assert ssrf == []

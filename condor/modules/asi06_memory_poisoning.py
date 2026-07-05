@@ -51,6 +51,20 @@ _ADVERSARIAL_UPSERT_PAYLOAD = {
     "metadata": {"source": "condor-test"},
 }
 
+# Qdrant / Chroma unauthenticated collection listing
+_VECTORSTORE_COLLECTION_ENDPOINTS = [
+    ("/collections",        "Qdrant"),
+    # Chroma v2 API (v1 deprecated → 410 Gone)
+    ("/api/v2/tenants/default_tenant/databases/default_database/collections", "Chroma"),
+]
+
+# Letta IDOR — per-agent memory endpoint
+_LETTA_MEMORY_PROBE_IDS = [
+    "00000000-0000-0000-0000-000000000001",
+    "1",
+    "agent-1",
+]
+
 
 class MemoryPoisoningModule(BaseModule):
     name        = "memory-poisoning"
@@ -63,6 +77,8 @@ class MemoryPoisoningModule(BaseModule):
         findings.extend(await self._check_memory(surface, platform))
         findings.extend(await self._check_vector_inject(surface, platform))
         findings.extend(await self._check_dify_datasets(surface, platform))
+        findings.extend(await self._check_vectorstore_collections(platform))
+        findings.extend(await self._check_letta_memory_idor(platform))
         return findings
 
     async def _check_docstore(self, surface: AgentSurface, platform: BasePlatform) -> list[Finding]:
@@ -235,6 +251,89 @@ class MemoryPoisoningModule(BaseModule):
                         endpoint=endpoint,
                     ))
                     break
+            except Exception:
+                pass
+        return findings
+
+    async def _check_vectorstore_collections(self, platform: BasePlatform) -> list[Finding]:
+        """Qdrant/Chroma: list collections without authentication → HIGH."""
+        findings = []
+        for endpoint, platform_name in _VECTORSTORE_COLLECTION_ENDPOINTS:
+            try:
+                r = await platform.get(endpoint)
+                if r.status_code != 200 or not _is_api_response(r):
+                    continue
+                try:
+                    data = r.json()
+                    if platform_name == "Qdrant":
+                        result = data.get("result", {})
+                        collections = result.get("collections", []) if isinstance(result, dict) else []
+                        count = len(collections)
+                    else:
+                        items = data if isinstance(data, list) else []
+                        count = len(items)
+                except Exception:
+                    count = 0
+                findings.append(Finding(
+                    title=f"Unauthenticated vectorstore collection listing: {endpoint}",
+                    severity=Severity.HIGH,
+                    owasp_id=self.owasp_id,
+                    description=(
+                        f"{platform_name}'s {endpoint} endpoint exposes the collection registry "
+                        f"without authentication. An attacker can enumerate all vector collections, "
+                        f"infer knowledge base contents and schema, and target injection attacks."
+                    ),
+                    evidence=(
+                        f"GET {endpoint} → 200 OK"
+                        + (f" ({count} collection(s) exposed)" if count else "")
+                    ),
+                    remediation=(
+                        f"Enable {platform_name} API key authentication "
+                        f"(QDRANT__SERVICE__API_KEY env var for Qdrant; "
+                        f"CHROMA_SERVER_AUTHN_CREDENTIALS for Chroma). "
+                        f"Restrict collection listing to authenticated clients."
+                    ),
+                    confidence=90,
+                    cwe_id="CWE-306",
+                    endpoint=endpoint,
+                ))
+            except Exception:
+                pass
+        return findings
+
+    async def _check_letta_memory_idor(self, platform: BasePlatform) -> list[Finding]:
+        """Letta: probe per-agent memory endpoint without auth (IDOR)."""
+        findings = []
+        for agent_id in _LETTA_MEMORY_PROBE_IDS:
+            endpoint = f"/v1/agents/{agent_id}/memory"
+            try:
+                r = await platform.get(endpoint)
+                if r.status_code == 200 and _is_api_response(r):
+                    try:
+                        data = r.json()
+                        snippet = str(data)[:200]
+                    except Exception:
+                        snippet = r.text[:200]
+                    findings.append(Finding(
+                        title=f"IDOR: Letta agent memory accessible without authentication: {endpoint}",
+                        severity=Severity.HIGH,
+                        owasp_id=self.owasp_id,
+                        description=(
+                            f"The Letta endpoint {endpoint} returns agent memory (conversation "
+                            f"history, persona, human block) without authentication or ownership "
+                            f"verification. An attacker can enumerate agent IDs to read and "
+                            f"potentially overwrite memory of any agent in the system."
+                        ),
+                        evidence=f"GET {endpoint} → 200 OK without auth: {snippet}",
+                        remediation=(
+                            "Enable Letta server authentication (LETTA_SERVER_PASSWORD / SECURE=true). "
+                            "Enforce agent-level ownership checks on all /memory endpoints."
+                        ),
+                        confidence=88,
+                        cwe_id="CWE-639",
+                        endpoint=endpoint,
+                    ))
+                    return findings  # One confirmed IDOR is enough
             except Exception:
                 pass
         return findings

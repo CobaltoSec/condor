@@ -197,3 +197,76 @@ async def test_expanded_impersonation_no_false_positive():
     findings = await mod.run(surface, platform)
     imp = [f for f in findings if "human impersonation" in f.title]
     assert imp == []
+
+
+# ── Version disclosure ────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_version_exposure_via_status_low():
+    """GET /status returns version fields → LOW finding."""
+    mod = TrustExploitationModule()
+    resp = _json_resp(200, {"version": "1.2.3", "commit": "abc123", "status": "ok"})
+    platform = _mock_platform(get_responses={"/status": resp})
+    findings = await mod.run(_surface(), platform)
+    ver = [f for f in findings if "version" in f.title.lower() and "disclosed" in f.title.lower()]
+    assert len(ver) == 1
+    assert ver[0].severity == Severity.LOW
+    assert ver[0].confidence == 80
+    assert ver[0].cwe_id == "CWE-200"
+    assert "1.2.3" in ver[0].evidence
+
+
+@pytest.mark.asyncio
+async def test_version_exposure_no_version_fields():
+    """GET /status returns 200 but no version fields → no finding."""
+    mod = TrustExploitationModule()
+    resp = _json_resp(200, {"status": "ok", "uptime": 12345})
+    platform = _mock_platform(get_responses={"/status": resp})
+    findings = await mod.run(_surface(), platform)
+    ver = [f for f in findings if "version" in f.title.lower() and "disclosed" in f.title.lower()]
+    assert ver == []
+
+
+@pytest.mark.asyncio
+async def test_version_exposure_404_no_finding():
+    """All version/status endpoints return 404 → no finding."""
+    mod = TrustExploitationModule()
+    findings = await mod.run(_surface(), _mock_platform())
+    ver = [f for f in findings if "version" in f.title.lower() and "disclosed" in f.title.lower()]
+    assert ver == []
+
+
+@pytest.mark.asyncio
+async def test_version_exposure_html_filtered():
+    """GET /status returns HTML → no finding."""
+    mod = TrustExploitationModule()
+
+    def _html_resp():
+        r = MagicMock(status_code=200, text="<html><body></body></html>", content=b"<html>")
+        r.headers = {"content-type": "text/html"}
+        r.json.side_effect = Exception("not json")
+        return r
+
+    platform = _mock_platform(get_responses={"/status": _html_resp()})
+    findings = await mod.run(_surface(), platform)
+    ver = [f for f in findings if "version" in f.title.lower() and "disclosed" in f.title.lower()]
+    assert ver == []
+
+
+@pytest.mark.asyncio
+async def test_version_exposure_openapi_json_nested():
+    """GET /openapi.json with nested info.version → LOW finding."""
+    mod = TrustExploitationModule()
+    openapi_data = {
+        "openapi": "3.1.0",
+        "info": {"title": "Hayhooks", "version": "0.1.dev1+g500546004"},
+        "paths": {},
+    }
+    resp = _json_resp(200, openapi_data)
+    platform = _mock_platform(get_responses={"/openapi.json": resp})
+    findings = await mod.run(_surface(), platform)
+    ver = [f for f in findings if "version" in f.title.lower() and "disclosed" in f.title.lower()]
+    assert len(ver) == 1
+    assert ver[0].severity == Severity.LOW
+    assert "0.1.dev1" in ver[0].evidence

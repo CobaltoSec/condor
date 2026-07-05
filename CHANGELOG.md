@@ -1,5 +1,18 @@
 # Changelog
 
+## [RT-CONDOR-V10-DEEPENED] — 2026-07-05 — PLATFORM-SPECIFIC PROBES + FP FIXES
+
+- **ASI02 — Qdrant SSRF probe**: `_check_qdrant_ssrf()` en `asi02_tool_misuse.py` — POST `/collections/{name}/snapshots/recover` con payload IMDS; skip list extendida con 405 para eliminar FP en plataformas que retornan Method Not Allowed (OWI, etc.)
+- **ASI03 — Hayhooks `/status` + Letta `/v1/agents`**: agregados a `_SENSITIVE`; `/status` expone pipeline list (MEDIUM), `/v1/agents` expone agent registry (HIGH); path `/pipelines` incorrecto corregido a `/status` (Hayhooks no tiene esa ruta)
+- **ASI05 — OWI function creation probe**: `_check_owui_functions()` — POST `/api/v1/functions` con Python exec payload; CRITICAL si 200/201, HIGH si 400/422; cleanup DELETE con ID
+- **ASI06 — Vectorstore collection listing**: `_check_vectorstore_collections()` — GET `/collections` (Qdrant) y `/api/v2/tenants/default_tenant/databases/default_database/collections` (Chroma v2); Chroma v1 deprecated → 410 Gone
+- **ASI06 — Letta IDOR**: `_check_letta_memory_idor()` — GET `/v1/agents/{id}/memory` con IDs canónicos; CWE-639 (HIGH, conf 88)
+- **ASI09 — Version disclosure ampliada**: `/openapi.json` agregado a `_VERSION_DISCLOSURE_ENDPOINTS`; `_check_version_exposure()` ahora detecta `info.version` anidado (formato OpenAPI spec); LOW findings en Hayhooks, Chroma, Letta E2E
+- **ASI10 — Vectorstore creation**: `_check_vectorstore_creation()` — Qdrant PUT `/collections/condor-probe` (idempotente → CRITICAL); Chroma POST v2 (200/201 → CRITICAL; 409/400/422 → HIGH); OWI tool registration POST `/api/v1/tools`
+- **E2E validado**: 11 findings, 0 FP. `EXPECTED: all N target ASI IDs detected` en 5/5 plataformas (Qdrant: ASI06+ASI10; Chroma: ASI06+ASI09+ASI10; Hayhooks: ASI03+ASI09; Letta: ASI03+ASI04+ASI09; OWI: ASI09)
+- **Gaps documentados**: ASI02 SSRF (Qdrant; requiere collection pre-cargada); ASI06 IDOR Letta (probe IDs no matchean instancia fresca); OWI ASI05/ASI10 POST (v0.5.20 enforces auth incluso con WEBUI_AUTH=False)
+- 27 tests nuevos (345 → **372/372 passing**)
+
 ## [RT-CONDOR-V10-E2E] — 2026-07-05 — E2E VALIDATION + ASI08 FP FIX
 
 - **Docker Compose E2E**: `tests/e2e/docker-compose.yml` — 5 servicios V09 sin auth (Qdrant, Chroma, Hayhooks, Letta, Open WebUI v0.5.20) con healthchecks y `--no-wait` flag

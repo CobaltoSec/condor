@@ -200,3 +200,59 @@ async def test_header_bypass_not_triggered_when_patched():
     plat.delete = _delete
     findings = await mod.run(_surface(), plat)
     assert not any("x-request-from" in f.title for f in findings)
+
+
+@pytest.mark.asyncio
+async def test_hayhooks_status_exposed():
+    """GET /status returns 200 → MEDIUM finding for Hayhooks service status exposure."""
+    mod = PrivilegeAbuseModule()
+    resp = _resp(200, {"status": "Up!", "pipelines": []})
+    plat = MagicMock()
+
+    async def _get(path, **kw):
+        if path == "/status":
+            return resp
+        return _resp(404)
+
+    async def _post(path, **kw):
+        return _resp(404)
+
+    async def _delete(path, **kw):
+        return _resp(404)
+
+    plat.get = _get
+    plat.post = _post
+    plat.delete = _delete
+    findings = await mod.run(_surface(), plat)
+    status = [f for f in findings if "/status" in f.title]
+    assert len(status) == 1
+    assert status[0].severity == Severity.MEDIUM
+    assert status[0].owasp_id == OWASPCategory.ASI03
+
+
+@pytest.mark.asyncio
+async def test_letta_agents_exposed():
+    """GET /v1/agents returns 200 → HIGH finding for Letta agent registry exposure."""
+    mod = PrivilegeAbuseModule()
+    resp = _resp(200, [{"id": "agent-1", "name": "customer-bot"}])
+    plat = MagicMock()
+
+    async def _get(path, **kw):
+        if path == "/v1/agents":
+            return resp
+        return _resp(404)
+
+    async def _post(path, **kw):
+        return _resp(404)
+
+    async def _delete(path, **kw):
+        return _resp(404)
+
+    plat.get = _get
+    plat.post = _post
+    plat.delete = _delete
+    findings = await mod.run(_surface(), plat)
+    agents = [f for f in findings if "/v1/agents" in f.title]
+    assert len(agents) == 1
+    assert agents[0].severity == Severity.HIGH
+    assert agents[0].owasp_id == OWASPCategory.ASI03

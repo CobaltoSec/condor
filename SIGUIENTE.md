@@ -41,28 +41,23 @@ Notas:
 
 ---
 
-### RT-CONDOR-V10-DEEPENED — Módulos ASI profundizados para V09 platforms ⭐ siguiente
+### ~~RT-CONDOR-V10-DEEPENED — Módulos ASI profundizados para V09 platforms~~ ✅ CERRADO
 
-Probes específicos para las 8 gaps identificadas en E2E:
+27 tests nuevos (345 → 372). 9 probes implementados en 6 módulos. E2E: 11 findings, 0 FP.
 
-**Qdrant/Chroma (vectorstores)**:
-- ASI06: GET `/collections` y `/api/v1/collections` sin auth → HIGH finding
-- ASI10: POST collection creation sin auth (Qdrant `PUT /collections/{name}`, Chroma POST)
-- ASI02: SSRF via Qdrant `POST /collections/{name}/snapshots/recover`
-
-**Hayhooks**:
-- ASI03: GET `/pipelines` sin auth → HIGH finding (agregar a `_SENSITIVE`)
-- ASI09: GET `/status` expone versión sin auth → LOW finding (sin flows necesario)
-
-**Letta**:
-- ASI03: GET `/v1/agents` sin auth → HIGH (agregar `/v1/agents` a `_SENSITIVE`)
-- ASI06: IDOR en `/v1/agents/{id}/memory` sin auth
-
-**Open WebUI**:
-- ASI05: POST `/api/v1/functions` crea función Python → CRITICAL finding
-- ASI10: POST `/api/v1/tools` sin auth → CRITICAL finding
-
-- Talla: M
+| Gap original | Estado | Finding E2E |
+|---|---|---|
+| ASI06: Qdrant `/collections` | ✅ cerrado | HIGH |
+| ASI10: Qdrant collection creation | ✅ cerrado | CRITICAL |
+| ASI02: Qdrant SSRF snapshots | ✅ probe implementado | Gap: requiere collection pre-cargada |
+| ASI06: Chroma collections (v1→v2) | ✅ cerrado | HIGH |
+| ASI10: Chroma collection creation | ✅ cerrado | HIGH (409) |
+| ASI03: Hayhooks `/status` | ✅ cerrado | MEDIUM |
+| ASI09: `/openapi.json` + nested version | ✅ cerrado | LOW (×3 plataformas) |
+| ASI03: Letta `/v1/agents` | ✅ cerrado | HIGH |
+| ASI06: Letta IDOR `/v1/agents/{id}/memory` | ✅ probe implementado | Gap: IDs no matchean instancia fresca |
+| ASI05: OWI POST `/api/v1/functions` | ⏸ código listo | Gap: OWI v0.5.20 enforces auth en write paths incluso con `WEBUI_AUTH=False` |
+| ASI10: OWI POST `/api/v1/tools` | ⏸ código listo | Gap: mismo que ASI05 |
 
 ---
 
@@ -88,7 +83,7 @@ Probes específicos para las 8 gaps identificadas en E2E:
 | rogue-agents | ASI10 | ✅ |
 
 **Plataformas:** `flowise` · `generic` · `langflow` · `dify` · `autogen` · `n8n` · `llamaindex` · `crewai` · `langgraph` · `ollama` · `openai-compat` · `openwebui` · `hayhooks` · `letta` · `qdrant` · `chroma`  
-**Cobertura:** 10/10 módulos OWASP ASI · 345 tests passing  
+**Cobertura:** 10/10 módulos OWASP ASI · 372 tests passing  
 **Output:** JSON · SARIF 2.1.0 · HTML · JUnit XML · `--stdout`  
 **Auth:** `--api-key` / `--username` / `--password` / env vars · `--proxy` · `--insecure`  
 **DX:** `--min-severity` · `--baseline` / `--save-baseline` · `--config` (condor.yaml) · módulos en paralelo · deduplicación  

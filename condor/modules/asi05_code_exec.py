@@ -57,11 +57,80 @@ _LANGFLOW_CMD_PROBE = {
     "frontend_node": {},
 }
 
+# Open WebUI — Python function creation (filter/action type, executed on chat events)
+_OWI_FUNCTION_ENDPOINT = "/api/v1/functions"
+_OWI_FUNCTION_PAYLOAD  = {
+    "name": "condor-probe",
+    "content": "def filter(body, __user__=None):\n    print('condor')\n    return body",
+    "type": "filter",
+}
+
 
 class CodeExecutionModule(BaseModule):
     name        = "code-execution"
     owasp_id    = OWASPCategory.ASI05
     description = "Detects eval/exec sinks and unauthenticated code execution endpoints (ASI05)"
+
+    async def _check_owui_functions(self, platform: BasePlatform) -> list[Finding]:
+        """Probe Open WebUI function creation endpoint — Python filter/action execution without auth."""
+        findings: list[Finding] = []
+        created_id: str | None = None
+        try:
+            r = await platform.post(_OWI_FUNCTION_ENDPOINT, json=_OWI_FUNCTION_PAYLOAD)
+            if r.status_code in (401, 403, 404):
+                return findings
+            if not _is_api_response(r):
+                return findings
+            if r.status_code in (200, 201):
+                try:
+                    data = r.json()
+                    created_id = data.get("id") if isinstance(data, dict) else None
+                except Exception:
+                    pass
+                findings.append(Finding(
+                    title="Unauthenticated Python function creation accepted: /api/v1/functions",
+                    severity=Severity.CRITICAL,
+                    owasp_id=self.owasp_id,
+                    description=(
+                        "Open WebUI's /api/v1/functions endpoint accepted a Python function "
+                        "creation request without authentication. Filter and action functions "
+                        "are executed server-side on chat events, enabling persistent RCE via "
+                        "any authenticated chat interaction."
+                    ),
+                    evidence=f"POST {_OWI_FUNCTION_ENDPOINT} → {r.status_code} (function created without auth)",
+                    remediation=(
+                        "Enable Open WebUI authentication (WEBUI_AUTH=True, which is the default). "
+                        "Restrict /api/v1/functions to admin users only."
+                    ),
+                    confidence=95,
+                    cwe_id="CWE-306",
+                    endpoint=_OWI_FUNCTION_ENDPOINT,
+                ))
+            elif r.status_code in (400, 422):
+                findings.append(Finding(
+                    title="Open WebUI function endpoint accessible without authentication",
+                    severity=Severity.HIGH,
+                    owasp_id=self.owasp_id,
+                    description=(
+                        "Open WebUI's /api/v1/functions endpoint responded to an unauthenticated "
+                        f"POST request (HTTP {r.status_code}). The endpoint allows Python code "
+                        "upload; a correctly formatted payload may achieve persistent RCE."
+                    ),
+                    evidence=f"POST {_OWI_FUNCTION_ENDPOINT} → {r.status_code} (auth not enforced, payload rejected)",
+                    remediation="Enable Open WebUI authentication. Restrict function endpoints to admin users.",
+                    confidence=70,
+                    cwe_id="CWE-306",
+                    endpoint=_OWI_FUNCTION_ENDPOINT,
+                ))
+        except Exception:
+            pass
+        finally:
+            if created_id:
+                try:
+                    await platform.delete(f"{_OWI_FUNCTION_ENDPOINT}/{created_id}")
+                except Exception:
+                    pass
+        return findings
 
     async def run(self, surface: AgentSurface, platform: BasePlatform) -> list[Finding]:
         findings: list[Finding] = []
@@ -250,5 +319,8 @@ class CodeExecutionModule(BaseModule):
                     ))
             except Exception:
                 pass
+
+        # Open WebUI: Python function creation endpoint
+        findings.extend(await self._check_owui_functions(platform))
 
         return findings

@@ -32,9 +32,15 @@ def _mock_platform(responses: dict | None = None) -> MagicMock:
             return responses[path]
         return resp_404
 
+    async def _put(path, **kw):
+        if responses and path in responses:
+            return responses[path]
+        return resp_404
+
     plat.post = _post
     plat.get = _get
     plat.delete = _delete
+    plat.put = _put
     return plat
 
 
@@ -90,7 +96,8 @@ async def test_tool_registration_critical():
     resp = _json_resp(200, {"id": "tool-123", "name": "condor-probe-tool"})
     platform = _mock_platform({"/api/v1/tools": resp})
     findings = await mod.run(_surface(), platform)
-    tr = [f for f in findings if "tool registration accepted" in f.title]
+    # Generic tool check: title includes the endpoint path
+    tr = [f for f in findings if "Unauthenticated tool registration accepted: /api/v1/tools" == f.title]
     assert len(tr) == 1
     assert tr[0].severity == Severity.CRITICAL
     assert tr[0].confidence == 88
@@ -194,3 +201,92 @@ async def test_no_rogue_findings_on_clean_surface():
     findings = await mod.run(surface, _mock_platform())
     rogue = [f for f in findings if "Existing Rogue Agent" in f.title]
     assert rogue == []
+
+
+@pytest.mark.asyncio
+async def test_qdrant_collection_creation_critical():
+    """Qdrant PUT /collections/{name} with 200 → CRITICAL."""
+    mod = RogueAgentsModule()
+    resp = _json_resp(200, {"result": True, "status": "ok"})
+    platform = _mock_platform({"/collections/condor-probe": resp})
+    findings = await mod.run(_surface(), platform)
+    qdrant = [f for f in findings if "Qdrant collection creation" in f.title]
+    assert len(qdrant) == 1
+    assert qdrant[0].severity == Severity.CRITICAL
+    assert qdrant[0].cwe_id == "CWE-306"
+
+
+@pytest.mark.asyncio
+async def test_qdrant_collection_creation_high():
+    """Qdrant PUT /collections/{name} with 400 (no auth) → HIGH."""
+    mod = RogueAgentsModule()
+    resp = _json_resp(400, {"status": "error", "error": "Wrong input"})
+    platform = _mock_platform({"/collections/condor-probe": resp})
+    findings = await mod.run(_surface(), platform)
+    qdrant = [f for f in findings if "Qdrant collection creation" in f.title]
+    assert len(qdrant) == 1
+    assert qdrant[0].severity == Severity.HIGH
+
+
+_CHROMA_V2_EP = "/api/v2/tenants/default_tenant/databases/default_database/collections"
+
+
+@pytest.mark.asyncio
+async def test_chroma_collection_creation_critical():
+    """Chroma POST v2 collections with 200 → CRITICAL."""
+    mod = RogueAgentsModule()
+    resp = _json_resp(200, {"id": "coll-abc", "name": "condor-probe"})
+    platform = _mock_platform({_CHROMA_V2_EP: resp})
+    findings = await mod.run(_surface(), platform)
+    chroma = [f for f in findings if "Chroma collection creation" in f.title]
+    assert len(chroma) == 1
+    assert chroma[0].severity == Severity.CRITICAL
+
+
+@pytest.mark.asyncio
+async def test_chroma_collection_creation_high():
+    """Chroma POST v2 collections with 422 (no auth) → HIGH."""
+    mod = RogueAgentsModule()
+    resp = _json_resp(422, {"detail": "validation error"})
+    platform = _mock_platform({_CHROMA_V2_EP: resp})
+    findings = await mod.run(_surface(), platform)
+    chroma = [f for f in findings if "Chroma collection creation endpoint" in f.title]
+    assert len(chroma) == 1
+    assert chroma[0].severity == Severity.HIGH
+
+
+@pytest.mark.asyncio
+async def test_chroma_collection_creation_409_high():
+    """Chroma POST v2 collections with 409 (already exists) → HIGH (endpoint accessible)."""
+    mod = RogueAgentsModule()
+    resp = _json_resp(409, {"error": "ChromaError", "message": "Collection already exists"})
+    platform = _mock_platform({_CHROMA_V2_EP: resp})
+    findings = await mod.run(_surface(), platform)
+    chroma = [f for f in findings if "Chroma collection creation endpoint" in f.title]
+    assert len(chroma) == 1
+    assert chroma[0].severity == Severity.HIGH
+
+
+@pytest.mark.asyncio
+async def test_owui_tool_registration_critical():
+    """OWI POST /api/v1/tools with OWI-specific payload + 201 → CRITICAL OWI finding."""
+    mod = RogueAgentsModule()
+    resp = _json_resp(201, {"id": "owui-tool-1", "name": "condor-probe-tool"})
+    platform = _mock_platform({"/api/v1/tools": resp})
+    findings = await mod.run(_surface(), platform)
+    owui = [f for f in findings if "Open WebUI tool registration" in f.title]
+    assert len(owui) == 1
+    assert owui[0].severity == Severity.CRITICAL
+    assert owui[0].confidence == 92
+
+
+@pytest.mark.asyncio
+async def test_owui_tool_registration_high():
+    """OWI POST /api/v1/tools with 400 → HIGH accessible finding."""
+    mod = RogueAgentsModule()
+    resp = _json_resp(400, {"detail": "bad request"})
+    platform = _mock_platform({"/api/v1/tools": resp})
+    findings = await mod.run(_surface(), platform)
+    owui = [f for f in findings if "Open WebUI tool registration endpoint accessible" in f.title]
+    assert len(owui) == 1
+    assert owui[0].severity == Severity.HIGH

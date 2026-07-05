@@ -41,11 +41,11 @@ TARGETS = [
         "url": "http://localhost:6333",
         "health_url": "http://localhost:6333/healthz",
         "health_timeout": 30,
-        "expected_owasp": [],
+        # Detected by V10-DEEPENED probes
+        "expected_owasp": ["ASI06", "ASI10"],
         "gaps": [
-            "ASI06 HIGH  — /collections accessible without auth (no platform-specific probe yet)",
-            "ASI10 HIGH  — collection creation without auth (no platform-specific probe yet)",
-            "ASI02 HIGH  — SSRF via /collections/{name}/snapshots/recover (not implemented)",
+            # SSRF probe fires 404 (collection not pre-loaded → snapshot endpoint not reachable)
+            "ASI02 HIGH  — SSRF via /collections/{name}/snapshots/recover: real Qdrant with loaded collections would fire",
         ],
     },
     {
@@ -54,11 +54,9 @@ TARGETS = [
         "url": "http://localhost:8000",
         "health_url": "http://localhost:8000/api/v1/heartbeat",
         "health_timeout": 30,
-        "expected_owasp": [],
-        "gaps": [
-            "ASI06 HIGH  — /api/v1/collections accessible without auth (no platform-specific probe yet)",
-            "ASI10 HIGH  — collection creation without auth (no platform-specific probe yet)",
-        ],
+        # Detected: ASI06 (v2 collections), ASI09 (/openapi.json), ASI10 (409 = endpoint accessible)
+        "expected_owasp": ["ASI06", "ASI09", "ASI10"],
+        "gaps": [],
     },
     {
         "name": "hayhooks",
@@ -66,11 +64,9 @@ TARGETS = [
         "url": "http://localhost:1416",
         "health_url": "http://localhost:1416/status",
         "health_timeout": 30,
-        "expected_owasp": [],
-        "gaps": [
-            "ASI03 HIGH  — /pipelines accessible without auth (endpoint not in ASI03 _SENSITIVE list)",
-            "ASI09 LOW   — /status exposes version without auth (ASI09 requires surface.flows)",
-        ],
+        # Detected: ASI03 (/status exposes pipeline list), ASI09 (/openapi.json)
+        "expected_owasp": ["ASI03", "ASI09"],
+        "gaps": [],
     },
     {
         "name": "letta",
@@ -78,10 +74,11 @@ TARGETS = [
         "url": "http://localhost:8283",
         "health_url": "http://localhost:8283/v1/health",
         "health_timeout": 60,
-        "expected_owasp": [],
+        # Detected: ASI03 (/v1/agents), ASI04 (tool registry), ASI09 (/openapi.json)
+        "expected_owasp": ["ASI03", "ASI04", "ASI09"],
         "gaps": [
-            "ASI03 HIGH  — /v1/agents accessible without auth (/v1/ prefix not in ASI03 _SENSITIVE)",
-            "ASI06 HIGH  — IDOR on /v1/agents/{id}/memory (requires platform-specific probe)",
+            # Probe IDs hardcoded; fresh Letta instance has no agents at those paths
+            "ASI06 HIGH  — IDOR on /v1/agents/{id}/memory: probe IDs must match real agent IDs",
         ],
     },
     {
@@ -90,14 +87,13 @@ TARGETS = [
         "url": "http://localhost:8080",
         "health_url": "http://localhost:8080/api/v1/models",
         "health_timeout": 180,  # OWI takes ~60s to initialize DB + frontend
-        "expected_owasp": [],
         # OWI v0.5.20 serves all GET /api/v1/* routes as SPA HTML (catch-all) →
-        # _is_api_response() filters them → 0 generic-HTTP findings expected.
-        # Note: OWI :main removed WEBUI_AUTH=False API bypass; v0.5.20 used instead.
+        # _is_api_response() filters them. POST endpoints return 405 or 403 even
+        # with WEBUI_AUTH=False (v0.5.20 enforces auth for write paths despite env var).
+        "expected_owasp": ["ASI09"],
         "gaps": [
-            "ASI05 CRITICAL — POST /api/v1/functions creates Python exec without auth (needs POST probe)",
-            "ASI10 HIGH    — POST /api/v1/tools creates tools without auth (needs POST probe)",
-            "ASI03 HIGH    — /api/v1/users list accessible without auth (needs POST probe path)",
+            "ASI05 CRITICAL — POST /api/v1/functions/create returns 403 (OWI v0.5.20 enforces auth even with WEBUI_AUTH=False)",
+            "ASI10 HIGH    — POST /api/v1/tools returns 405 (route mismatch or auth-enforced)",
         ],
     },
 ]
@@ -262,7 +258,7 @@ def main() -> None:
         print(f"  {row['name']:<16} {row['status']:<12} {row['findings']:<10} {owasp_str}")
 
     # Gap summary
-    print_section("GAP SUMMARY (feed for RT-CONDOR-V10-DEEPENED)")
+    print_section("GAP SUMMARY (remaining coverage gaps)")
     for target in targets:
         if target.get("gaps"):
             print(f"\n  {target['name']}:")

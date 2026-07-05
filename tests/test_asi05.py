@@ -256,3 +256,104 @@ async def test_exception_swallowed():
     plat.post = AsyncMock(side_effect=Exception("connection refused"))
     findings = await mod.run(_surface(), plat)
     assert findings == []
+
+
+# ── Open WebUI functions ──────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_owui_function_creation_critical():
+    """POST /api/v1/functions returns 201 → CRITICAL function creation without auth."""
+    mod = CodeExecutionModule()
+    plat = MagicMock()
+
+    async def _post(path, **kw):
+        if path == "/api/v1/functions":
+            r = MagicMock(status_code=201, text='{"id": "fn-1", "name": "condor-probe"}', content=b'{}')
+            r.headers = {"content-type": "application/json"}
+            r.json.return_value = {"id": "fn-1", "name": "condor-probe"}
+            return r
+        return resp_404
+
+    async def _delete(path, **kw):
+        return resp_404
+
+    plat.post = _post
+    plat.delete = _delete
+    findings = await mod.run(_surface(), plat)
+    owui = [f for f in findings if "function creation" in f.title]
+    assert len(owui) == 1
+    assert owui[0].severity == Severity.CRITICAL
+    assert owui[0].confidence == 95
+    assert owui[0].cwe_id == "CWE-306"
+
+
+@pytest.mark.asyncio
+async def test_owui_function_endpoint_accessible_high():
+    """POST /api/v1/functions returns 400 (no auth) → HIGH accessible finding."""
+    mod = CodeExecutionModule()
+    plat = MagicMock()
+
+    async def _post(path, **kw):
+        if path == "/api/v1/functions":
+            r = MagicMock(status_code=400, text='{"detail": "validation error"}', content=b'{}')
+            r.headers = {"content-type": "application/json"}
+            return r
+        return resp_404
+
+    async def _delete(path, **kw):
+        return resp_404
+
+    plat.post = _post
+    plat.delete = _delete
+    findings = await mod.run(_surface(), plat)
+    owui = [f for f in findings if "function endpoint accessible" in f.title]
+    assert len(owui) == 1
+    assert owui[0].severity == Severity.HIGH
+    assert owui[0].confidence == 70
+
+
+@pytest.mark.asyncio
+async def test_owui_function_401_no_finding():
+    """POST /api/v1/functions returns 401 → no finding (auth enforced)."""
+    mod = CodeExecutionModule()
+    plat = MagicMock()
+
+    async def _post(path, **kw):
+        if path == "/api/v1/functions":
+            r = MagicMock(status_code=401, text="Unauthorized", content=b"Unauthorized")
+            r.headers = {"content-type": "application/json"}
+            return r
+        return resp_404
+
+    async def _delete(path, **kw):
+        return resp_404
+
+    plat.post = _post
+    plat.delete = _delete
+    findings = await mod.run(_surface(), plat)
+    owui = [f for f in findings if "function" in f.title.lower() and "Open WebUI" in f.description]
+    assert owui == []
+
+
+@pytest.mark.asyncio
+async def test_owui_function_html_filtered():
+    """POST /api/v1/functions returns HTML (SPA catch-all) → no finding."""
+    mod = CodeExecutionModule()
+    plat = MagicMock()
+
+    async def _post(path, **kw):
+        if path == "/api/v1/functions":
+            r = MagicMock(status_code=200, text="<html><body></body></html>", content=b"<html>")
+            r.headers = {"content-type": "text/html; charset=utf-8"}
+            return r
+        return resp_404
+
+    async def _delete(path, **kw):
+        return resp_404
+
+    plat.post = _post
+    plat.delete = _delete
+    findings = await mod.run(_surface(), plat)
+    owui = [f for f in findings if "/api/v1/functions" in f.endpoint]
+    assert owui == []

@@ -136,6 +136,67 @@ async def test_adversarial_injection_success():
 
 
 @pytest.mark.asyncio
+async def test_vectorstore_collections_qdrant_high():
+    """GET /collections returns 200 → HIGH Qdrant collection listing."""
+    mod = MemoryPoisoningModule()
+    resp = _json_resp(200, {"result": {"collections": [{"name": "docs"}, {"name": "embeddings"}]}})
+    platform = _mock_platform({"/collections": resp})
+    findings = await mod.run(_surface(), platform)
+    vs = [f for f in findings if "collection listing" in f.title and "Qdrant" in f.description]
+    assert len(vs) == 1
+    assert vs[0].severity == Severity.HIGH
+    assert vs[0].confidence == 90
+    assert "2 collection" in vs[0].evidence
+
+
+@pytest.mark.asyncio
+async def test_vectorstore_collections_chroma_high():
+    """GET Chroma v2 collections returns 200 → HIGH collection listing."""
+    mod = MemoryPoisoningModule()
+    resp = _json_resp(200, [{"name": "col1"}, {"name": "col2"}, {"name": "col3"}])
+    chroma_ep = "/api/v2/tenants/default_tenant/databases/default_database/collections"
+    platform = _mock_platform({chroma_ep: resp})
+    findings = await mod.run(_surface(), platform)
+    vs = [f for f in findings if "collection listing" in f.title and "Chroma" in f.description]
+    assert len(vs) == 1
+    assert vs[0].severity == Severity.HIGH
+    assert "3 collection" in vs[0].evidence
+
+
+@pytest.mark.asyncio
+async def test_vectorstore_collections_404_no_finding():
+    """GET /collections returns 404 → no finding."""
+    mod = MemoryPoisoningModule()
+    findings = await mod.run(_surface(), _mock_platform())
+    vs = [f for f in findings if "collection listing" in f.title]
+    assert vs == []
+
+
+@pytest.mark.asyncio
+async def test_letta_memory_idor_high():
+    """GET /v1/agents/{id}/memory returns 200 → HIGH IDOR finding."""
+    mod = MemoryPoisoningModule()
+    ep = "/v1/agents/00000000-0000-0000-0000-000000000001/memory"
+    resp = _json_resp(200, {"memory": {"human": "I like Python", "persona": "You are Sam"}})
+    platform = _mock_platform({ep: resp})
+    findings = await mod.run(_surface(), platform)
+    idor = [f for f in findings if "IDOR" in f.title and "Letta" in f.title]
+    assert len(idor) == 1
+    assert idor[0].severity == Severity.HIGH
+    assert idor[0].confidence == 88
+    assert idor[0].cwe_id == "CWE-639"
+
+
+@pytest.mark.asyncio
+async def test_letta_memory_idor_404_no_finding():
+    """All Letta memory probe IDs return 404 → no finding."""
+    mod = MemoryPoisoningModule()
+    findings = await mod.run(_surface(), _mock_platform())
+    idor = [f for f in findings if "IDOR" in f.title and "Letta" in f.title]
+    assert idor == []
+
+
+@pytest.mark.asyncio
 async def test_adversarial_injection_partial():
     """Access probe returns 200, adversarial probe returns 403 → HIGH (access only)."""
     mod = MemoryPoisoningModule()

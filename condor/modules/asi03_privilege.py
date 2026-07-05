@@ -29,6 +29,10 @@ _SENSITIVE = [
     ("/v1/workspaces",       Severity.HIGH,     "Dify workspace data"),
     ("/studio/api/teams",    Severity.HIGH,     "AutoGen Studio team data"),
     ("/api/v1/flows",        Severity.HIGH,     "Langflow flow definitions"),
+    # Hayhooks
+    ("/status",              Severity.MEDIUM,   "Hayhooks service status and pipeline list"),
+    # Letta
+    ("/v1/agents",           Severity.HIGH,     "Letta agent registry"),
 ]
 
 # Endpoints that allow unauthenticated writes (worse than reads)

@@ -55,6 +55,21 @@ _CREATION_PAYLOAD  = {"name": "condor-probe"}
 _TOOL_PAYLOAD      = {"name": "condor-probe-tool", "func": "print"}
 _WEBHOOK_PAYLOAD   = {"url": "http://condor.probe/callback", "events": ["run.completed"]}
 
+# Qdrant: PUT /collections/{name} to create a new vector collection without auth
+_QDRANT_COLLECTION_ENDPOINT = "/collections/condor-probe"
+_QDRANT_COLLECTION_PAYLOAD  = {"vectors": {"size": 4, "distance": "Cosine"}}
+# Chroma: POST /api/v2/collections (v1 deprecated → 410 Gone)
+_CHROMA_COLLECTION_ENDPOINT = "/api/v2/tenants/default_tenant/databases/default_database/collections"
+_CHROMA_COLLECTION_PAYLOAD  = {"name": "condor-probe"}
+
+# Open WebUI: POST /api/v1/tools — tool registration with Python content
+_OWI_TOOL_ENDPOINT = "/api/v1/tools"
+_OWI_TOOL_PAYLOAD  = {
+    "name": "condor-probe-tool",
+    "description": "condor security probe",
+    "content": "def main():\n    pass",
+}
+
 
 class RogueAgentsModule(BaseModule):
     name        = "rogue-agents"
@@ -66,6 +81,8 @@ class RogueAgentsModule(BaseModule):
         findings.extend(await self._check_unauthenticated_creation(surface, platform))
         findings.extend(await self._check_tool_registration(surface, platform))
         findings.extend(await self._check_webhook_registration(surface, platform))
+        findings.extend(await self._check_vectorstore_creation(platform))
+        findings.extend(await self._check_owui_tool_registration(platform))
         findings.extend(await self._check_existing_rogue_indicators(surface, platform))
         return findings
 
@@ -264,6 +281,167 @@ class RogueAgentsModule(BaseModule):
                     cleanup_finding = await self._cleanup(platform, endpoint, created_id)
                     if cleanup_finding:
                         findings.append(cleanup_finding)
+        return findings
+
+    async def _check_vectorstore_creation(self, platform: BasePlatform) -> list[Finding]:
+        """Qdrant/Chroma: create vector collections without authentication."""
+        findings: list[Finding] = []
+
+        # Qdrant: PUT /collections/{name}
+        try:
+            r = await platform.put(_QDRANT_COLLECTION_ENDPOINT, json=_QDRANT_COLLECTION_PAYLOAD)
+            if r.status_code not in (401, 403, 404) and _is_api_response(r):
+                created = r.status_code in (200, 201)
+                try:
+                    data = r.json()
+                    result = data.get("result") if isinstance(data, dict) else None
+                    created = created or result is True
+                except Exception:
+                    pass
+                if created or r.status_code in (400, 422):
+                    findings.append(Finding(
+                        title="Unauthenticated Qdrant collection creation accepted",
+                        severity=Severity.CRITICAL if created else Severity.HIGH,
+                        owasp_id=self.owasp_id,
+                        description=(
+                            "Qdrant's PUT /collections/{name} endpoint accepted a collection "
+                            "creation request without authentication. "
+                            + ("The collection was created. " if created else "Payload was rejected but auth was not enforced. ")
+                            + "An attacker can create arbitrary collections to store poisoned "
+                            "vectors that manipulate RAG pipelines consuming this Qdrant instance."
+                        ),
+                        evidence=f"PUT {_QDRANT_COLLECTION_ENDPOINT} → {r.status_code} (auth not enforced)",
+                        remediation=(
+                            "Enable Qdrant API key authentication "
+                            "(QDRANT__SERVICE__API_KEY environment variable or --api-key flag)."
+                        ),
+                        confidence=90 if created else 70,
+                        cwe_id="CWE-306",
+                        endpoint=_QDRANT_COLLECTION_ENDPOINT,
+                    ))
+                    if created:
+                        try:
+                            await platform.delete(_QDRANT_COLLECTION_ENDPOINT)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+        # Chroma: POST /api/v1/collections
+        created_id: str | None = None
+        try:
+            r = await platform.post(_CHROMA_COLLECTION_ENDPOINT, json=_CHROMA_COLLECTION_PAYLOAD)
+            if r.status_code not in (401, 403, 404) and _is_api_response(r):
+                if r.status_code in (200, 201):
+                    try:
+                        data = r.json()
+                        created_id = data.get("id") if isinstance(data, dict) else None
+                    except Exception:
+                        pass
+                    findings.append(Finding(
+                        title="Unauthenticated Chroma collection creation accepted",
+                        severity=Severity.CRITICAL,
+                        owasp_id=self.owasp_id,
+                        description=(
+                            "Chroma's POST /api/v1/collections endpoint accepted a collection "
+                            "creation request without authentication. An attacker can create "
+                            "collections and insert poisoned vectors into RAG pipelines."
+                        ),
+                        evidence=f"POST {_CHROMA_COLLECTION_ENDPOINT} → {r.status_code} (collection created without auth)",
+                        remediation=(
+                            "Enable Chroma authentication "
+                            "(CHROMA_SERVER_AUTHN_CREDENTIALS / CHROMA_SERVER_AUTHN_PROVIDER)."
+                        ),
+                        confidence=90,
+                        cwe_id="CWE-306",
+                        endpoint=_CHROMA_COLLECTION_ENDPOINT,
+                    ))
+                elif r.status_code in (400, 409, 422):
+                    findings.append(Finding(
+                        title="Chroma collection creation endpoint accessible without authentication",
+                        severity=Severity.HIGH,
+                        owasp_id=self.owasp_id,
+                        description=(
+                            f"Chroma's {_CHROMA_COLLECTION_ENDPOINT} endpoint responded to an "
+                            f"unauthenticated POST (HTTP {r.status_code}). A correctly formatted "
+                            "payload may succeed in creating a collection."
+                        ),
+                        evidence=f"POST {_CHROMA_COLLECTION_ENDPOINT} → {r.status_code} (auth not enforced)",
+                        remediation="Enable Chroma authentication.",
+                        confidence=70,
+                        cwe_id="CWE-306",
+                        endpoint=_CHROMA_COLLECTION_ENDPOINT,
+                    ))
+        except Exception:
+            pass
+        finally:
+            if created_id:
+                try:
+                    await platform.delete(f"{_CHROMA_COLLECTION_ENDPOINT}/{created_id}")
+                except Exception:
+                    pass
+
+        return findings
+
+    async def _check_owui_tool_registration(self, platform: BasePlatform) -> list[Finding]:
+        """Open WebUI: register a tool (Python content) without authentication."""
+        findings: list[Finding] = []
+        created_id: str | None = None
+        try:
+            r = await platform.post(_OWI_TOOL_ENDPOINT, json=_OWI_TOOL_PAYLOAD)
+            if r.status_code in (401, 403, 404):
+                return findings
+            if not _is_api_response(r):
+                return findings
+            if r.status_code in (200, 201):
+                try:
+                    data = r.json()
+                    created_id = data.get("id") if isinstance(data, dict) else None
+                except Exception:
+                    pass
+                findings.append(Finding(
+                    title="Unauthenticated Open WebUI tool registration accepted",
+                    severity=Severity.CRITICAL,
+                    owasp_id=self.owasp_id,
+                    description=(
+                        "Open WebUI's /api/v1/tools endpoint accepted a tool registration "
+                        "containing Python code without authentication. Tools are executed "
+                        "server-side when invoked by the LLM, enabling persistent RCE "
+                        "disguised as a legitimate tool in the tool registry."
+                    ),
+                    evidence=f"POST {_OWI_TOOL_ENDPOINT} → {r.status_code} (tool registered without auth)",
+                    remediation=(
+                        "Enable Open WebUI authentication (WEBUI_AUTH=True). "
+                        "Restrict tool registration to admin users only."
+                    ),
+                    confidence=92,
+                    cwe_id="CWE-306",
+                    endpoint=_OWI_TOOL_ENDPOINT,
+                ))
+            elif r.status_code in (400, 422):
+                findings.append(Finding(
+                    title="Open WebUI tool registration endpoint accessible without authentication",
+                    severity=Severity.HIGH,
+                    owasp_id=self.owasp_id,
+                    description=(
+                        f"Open WebUI's {_OWI_TOOL_ENDPOINT} endpoint responded to an unauthenticated "
+                        f"POST (HTTP {r.status_code}). A correctly formatted Python tool payload "
+                        "may achieve persistent code execution."
+                    ),
+                    evidence=f"POST {_OWI_TOOL_ENDPOINT} → {r.status_code} (auth not enforced)",
+                    remediation="Enable Open WebUI authentication. Restrict tool registration to admin users.",
+                    confidence=70,
+                    cwe_id="CWE-306",
+                    endpoint=_OWI_TOOL_ENDPOINT,
+                ))
+        except Exception:
+            pass
+        finally:
+            if created_id:
+                try:
+                    await platform.delete(f"{_OWI_TOOL_ENDPOINT}/{created_id}")
+                except Exception:
+                    pass
         return findings
 
     async def _check_existing_rogue_indicators(self, surface: AgentSurface, platform: BasePlatform) -> list[Finding]:
