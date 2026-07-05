@@ -107,7 +107,8 @@ condor/
 - ASI02: payloads URL-encoded + double-encoded para path traversal; GCP/Azure IMDS + IPv6 + Kubernetes para SSRF; SSTI probes.
 - ASI03: `_check_header_bypass()` — probe CVE-2026-30820 (`x-request-from: internal`, Flowise ≤ 3.0.12). Solo dispara si baseline es 401/403; skip si endpoint ya abierto (no duplica con probe principal).
 - ASI05: OS command probe activo (`child_process.execSync('id')` para JS, `subprocess.check_output(['id'])` para Python). Output confirmation para AutoGen y Langflow. Blind timing probe: warmup request previo + threshold 0.5s (evita cold-TCP FP de ~200ms en primer request).
-- ASI08: DELETE 404 no se reporta — endpoint puede no existir; solo 200/204 es evidencia de job cancellation sin auth.
+- ASI08: DELETE 404 no se reporta — endpoint puede no existir; solo 200/204 es evidencia de job cancellation sin auth. `_check_rate_limit_burst()` solo dispara en 200/201 — 400/405/422 son FP en plataformas donde el endpoint no existe.
+- Open WebUI `:main` eliminó `WEBUI_AUTH=False` API bypass — `get_current_user()` ya no lo respeta. Para E2E usar `v0.5.20`. OWI v0.5.20 sirve HTML para GET `/api/v1/*` (SPA catch-all) — `_is_api_response()` lo filtra; probes efectivos requieren POST.
 - `Finding.cwe_id: str | None` — campo opcional, ej. `"CWE-306"`. Usado en SARIF (rule tags) y HTML (badge). NO almacenado en DefectDojo como string — se convierte a `int(cwe_id.split("-")[1])`.
 - Qdrant: usa header `api-key` nativo (no `Authorization: Bearer`).
 - Chroma: `/api/v1/version` retorna bare string `"0.5.11"` (sin JSON wrapper) — parsear con `r.text.strip().strip('"')`.

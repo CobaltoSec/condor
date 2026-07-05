@@ -10,6 +10,18 @@
 
 ---
 
+### RT-CONDOR-LETTA-BYPASS — Verificar bypass de auth en Letta con SECURE=true
+
+¿El endpoint `/v1/tools` responde sin bearer token cuando `SECURE=true` está habilitado? Si sí → GHSA.
+
+- Agregar servicio `letta-secure` al docker-compose E2E con `SECURE=true` + `LETTA_SERVER_PASSWORD=condor-test`
+- Probar GET `/v1/tools` sin auth → si 200, es bypass real (CWE-306, GHSA-able)
+- Comparar con CVE-2024-39025 / GHSA-7p2g-2vxc-5g55 (`/users` en MemGPT v0.3.17)
+- Si se confirma: disclosure via `support@letta.com`, luego GHSA
+- Talla: S
+
+---
+
 ### ~~RT-CONDOR-V10-E2E — Validación E2E con plataformas V09~~ ✅ CERRADO
 
 Docker Compose + script `tests/e2e/run_e2e.py`. 5/5 plataformas escaneadas.

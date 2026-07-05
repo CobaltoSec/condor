@@ -1,5 +1,15 @@
 # Changelog
 
+## [RT-CONDOR-V10-E2E] — 2026-07-05 — E2E VALIDATION + ASI08 FP FIX
+
+- **Docker Compose E2E**: `tests/e2e/docker-compose.yml` — 5 servicios V09 sin auth (Qdrant, Chroma, Hayhooks, Letta, Open WebUI v0.5.20) con healthchecks y `--no-wait` flag
+- **Script de validación**: `tests/e2e/run_e2e.py` — espera health, corre `condor scan --stdout`, imprime findings vs expected, emite gap summary para V10-DEEPENED; exit 0/1
+- **Findings reales**: Letta ASI04 HIGH confirmado — `/v1/tools` tool registry accesible sin auth en Docker por defecto; 4 plataformas con 0 findings → gaps documentados
+- **ASI08 FP fix**: `_check_rate_limit_burst()` disparaba en 400/405/422 (endpoints inexistentes con POST JSON) — cambiado a solo 200/201; elimina FPs en Chroma y OWI
+- **Gaps documentados para V10-DEEPENED**: 8 items específicos — Qdrant (ASI06/ASI10/ASI02), Chroma (ASI06/ASI10), Hayhooks (ASI03/ASI09), Letta (ASI03/ASI06), OWI (ASI05 POST, ASI10)
+- **Discovery**: OWI `:main` eliminó `WEBUI_AUTH=False` API bypass; E2E usa `v0.5.20`. OWI v0.5.20 sirve SPA HTML para GET `/api/v1/*` — probes de POST necesarios para detectar function creation
+- Suite total: **345/345 passing**
+
 ## [RT-CONDOR-V09] — 2026-07-05 — PLATFORM COVERAGE ROUND 2 + INTEGRATIONS
 
 - **5 platform adapters nuevos**: `openwebui` (`/api/v1/functions` Python exec, `functions_unauth` flag), `hayhooks` (`/pipelines`, normalización strings→dicts, `/openapi.json`), `letta` (Bearer auth, per-agent `/memory` IDOR surface), `qdrant` (header `api-key` nativo — no Bearer, `/telemetry` para version), `chroma` (version = bare string vía `r.text.strip().strip('"')`, `/api/v1/heartbeat`)
