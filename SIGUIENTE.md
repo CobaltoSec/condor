@@ -1,5 +1,22 @@
 # SIGUIENTE — Condor
 
+## Ekoparty 2026 — Submission #2 (deadline CFP: 14 agosto)
+
+**Contexto:** Corvus ya está submitteado como Submission #1. Condor es Submission #2 — complementario (Corvus = MCP layer, Condor = agentic platform layer). Shrike ocupa Semanas 3-4.
+
+**Ángulo del talk:** "El 17% de las plataformas agentic AI deployadas tienen vulns CRITICAL sin auth — auditamos 200+ instancias con Condor" / OWASP ASI Top 10 para el orquestador, no el modelo.
+
+| Fecha | Bloque | Objetivo |
+|-------|--------|---------|
+| Jul 7–14 | **RT-CONDOR-PYPI** | `pip install cobaltosec-condor`, GitHub público, README con ejemplos, CI |
+| Jul 14–21 | **RT-CONDOR-CS01** | Scan instancias reales (Flowise/Langflow/Dify públicas), case studies, ≥1 GHSA |
+| Jul 21 | **CFP submitteado** | Abstract a Sessionize (ya existe en `docs/cfp-abstract.md`) |
+| Jul 21+ | Buffer | Responder maintainers, polish |
+
+**Paralelo siempre:** Corvus disclosure — publicar GHSAs en lotes (2-3 por semana) antes de octubre.
+
+---
+
 ## Bloques siguientes
 
 ### RT-CONDOR-PYPI — Publicar en PyPI + GitHub público ⭐ recomendado siguiente
@@ -10,14 +27,14 @@
 
 ---
 
-### RT-CONDOR-LETTA-BYPASS — Verificar bypass de auth en Letta con SECURE=true
+### RT-CONDOR-LETTA-BYPASS — ~~Verificar bypass de auth en Letta~~ ✅ INVESTIGADO
 
-¿El endpoint `/v1/tools` responde sin bearer token cuando `SECURE=true` está habilitado? Si sí → GHSA.
-
-- Agregar servicio `letta-secure` al docker-compose E2E con `SECURE=true` + `LETTA_SERVER_PASSWORD=condor-test`
-- Probar GET `/v1/tools` sin auth → si 200, es bypass real (CWE-306, GHSA-able)
-- Comparar con CVE-2024-39025 / GHSA-7p2g-2vxc-5g55 (`/users` en MemGPT v0.3.17)
-- Si se confirma: disclosure via `support@letta.com`, luego GHSA
+- **Resultado**: `LETTA_SERVER_PASS` completamente ignorado — bypass confirmado en v0.5.1 y v0.16.8
+- **Root cause**: `CheckPasswordMiddleware` solo activa con `LETTA_SERVER_SECURE=true` (opt-in); `LETTA_SERVER_PASS` no hace nada
+- **Ya cubierto**: GHSA-p67m-xf4h-2r78 (CRITICAL, RCE via `/v1/tools/run`) y GHSA-99r8-mqp7-c7wq (HIGH, `/v1/admin/users`) — ambos submiteados por Shrike en junio 2026
+- **Pendiente para siguiente bloque**:
+  1. E2E docker-compose: cambiar `LETTA_SERVER_PASS` → `LETTA_SERVER_SECURE=true` para testear el bypass correctamente
+  2. ASI05 probe nuevo: `POST /v1/tools/run` en Letta — RCE directo (Python exec sin auth); actualmente solo tenemos probe de OWI
 - Talla: S
 
 ---
