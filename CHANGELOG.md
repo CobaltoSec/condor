@@ -1,5 +1,14 @@
 # Changelog
 
+## [RT-CONDOR-LETTA-BYPASS + RT-CONDOR-PYPI] — 2026-07-07 — LETTA RCE PROBE + v1.0.0 PYPI PREP
+
+- **ASI05 — Letta `/v1/tools/run` probe**: `_check_letta_tools_run()` — POST con Python arbitrario sin auth (GHSA-p67m-xf4h-2r78); CRITICAL 98 si `uid=` confirmado, fallback `os.getcwd()` (90/80); 5 tests nuevos (372 → **377/377 passing**)
+- **E2E docker-compose**: Letta ahora usa `LETTA_SERVER_PASS` sin `LETTA_SERVER_SECURE=true` — simula deployment "protegido" que en realidad está abierto por el bypass del middleware
+- **v1.0.0**: `pyproject.toml` — version bump, classifiers `Production/Stable`, `[project.urls]`
+- **README rewrite**: 10 módulos, 16 plataformas, badges CI/PyPI, ejemplos completos, sección de integrations y plugin system
+- **`.github/workflows/publish.yml`**: OIDC trusted publisher, trigger en tag `v*` — pendiente operativa (cuenta PyPI, Trusted Publisher config, repo público)
+- **`action.yml`**: plataformas actualizadas de 11 → 16
+
 ## [RT-CONDOR-V10-DEEPENED] — 2026-07-05 — PLATFORM-SPECIFIC PROBES + FP FIXES
 
 - **ASI02 — Qdrant SSRF probe**: `_check_qdrant_ssrf()` en `asi02_tool_misuse.py` — POST `/collections/{name}/snapshots/recover` con payload IMDS; skip list extendida con 405 para eliminar FP en plataformas que retornan Method Not Allowed (OWI, etc.)
