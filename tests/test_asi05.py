@@ -261,6 +261,109 @@ async def test_exception_swallowed():
 # ── Open WebUI functions ──────────────────────────────────────────────────────
 
 
+# ── Letta /v1/tools/run ───────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_letta_tools_run_cmd_confirmed():
+    """POST /v1/tools/run returns 'uid=' → CRITICAL RCE confirmed, confidence=98."""
+    mod = CodeExecutionModule()
+    plat = MagicMock()
+
+    async def _post(path, **kw):
+        if path == "/v1/tools/run":
+            src = (kw.get("json") or {}).get("source_code", "")
+            if "popen" in src:
+                return _resp_200('{"return_value": "uid=0(root) gid=0(root) groups=0(root)\\n"}')
+        return resp_404
+
+    plat.post = _post
+    findings = await mod.run(_surface(), plat)
+    letta = [f for f in findings if "Letta" in f.title and "confirmed" in f.title]
+    assert len(letta) == 1
+    assert letta[0].severity == Severity.CRITICAL
+    assert letta[0].confidence == 98
+    assert letta[0].cwe_id == "CWE-94"
+
+
+@pytest.mark.asyncio
+async def test_letta_tools_run_path_fallback():
+    """cmd probe 200 no uid → path probe returns path → CRITICAL, confidence=90."""
+    mod = CodeExecutionModule()
+    plat = MagicMock()
+
+    async def _post(path, **kw):
+        if path == "/v1/tools/run":
+            src = (kw.get("json") or {}).get("source_code", "")
+            if "popen" in src:
+                return _resp_200('{"return_value": "ok"}')
+            if "getcwd" in src:
+                return _resp_200('{"return_value": "/app/server"}')
+        return resp_404
+
+    plat.post = _post
+    findings = await mod.run(_surface(), plat)
+    letta = [f for f in findings if "Letta" in f.title]
+    assert len(letta) == 1
+    assert letta[0].severity == Severity.CRITICAL
+    assert letta[0].confidence == 90
+
+
+@pytest.mark.asyncio
+async def test_letta_tools_run_accepted_no_indicators():
+    """Both probes return 200 with no recognizable output → CRITICAL, confidence=80."""
+    mod = CodeExecutionModule()
+    plat = MagicMock()
+
+    async def _post(path, **kw):
+        if path == "/v1/tools/run":
+            return _resp_200('{"return_value": null}')
+        return resp_404
+
+    plat.post = _post
+    findings = await mod.run(_surface(), plat)
+    letta = [f for f in findings if "Letta" in f.title]
+    assert len(letta) == 1
+    assert letta[0].severity == Severity.CRITICAL
+    assert letta[0].confidence == 80
+
+
+@pytest.mark.asyncio
+async def test_letta_tools_run_401_no_finding():
+    """POST /v1/tools/run → 401 → no finding (auth enforced)."""
+    mod = CodeExecutionModule()
+    plat = MagicMock()
+
+    async def _post(path, **kw):
+        if path == "/v1/tools/run":
+            r = MagicMock(status_code=401, text="Unauthorized")
+            r.headers = {"content-type": "application/json"}
+            return r
+        return resp_404
+
+    plat.post = _post
+    findings = await mod.run(_surface(), plat)
+    letta = [f for f in findings if "Letta" in (f.title + (f.description or ""))]
+    assert letta == []
+
+
+@pytest.mark.asyncio
+async def test_letta_tools_run_html_filtered():
+    """POST /v1/tools/run returns HTML → _is_api_response filters it → no finding."""
+    mod = CodeExecutionModule()
+    plat = MagicMock()
+
+    async def _post(path, **kw):
+        if path == "/v1/tools/run":
+            return _resp_html("uid=0(root) linux daemon")
+        return resp_404
+
+    plat.post = _post
+    findings = await mod.run(_surface(), plat)
+    letta = [f for f in findings if "Letta" in (f.title + (f.description or ""))]
+    assert letta == []
+
+
 @pytest.mark.asyncio
 async def test_owui_function_creation_critical():
     """POST /api/v1/functions returns 201 → CRITICAL function creation without auth."""

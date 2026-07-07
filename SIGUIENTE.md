@@ -19,23 +19,28 @@
 
 ## Bloques siguientes
 
-### RT-CONDOR-PYPI — Publicar en PyPI + GitHub público ⭐ recomendado siguiente
+### RT-CONDOR-PYPI — Publicar en PyPI + GitHub público ⭐ EN PROGRESO
 
-- Prerequisito: ✅ validación E2E con findings reales (Flowise 1.8.2, CFP)
-- Tareas: bump versión → 1.0.0, README público con ejemplos, CI/CD con GitHub Actions, `pip install cobaltosec-condor`
-- Talla: M
+**Código listo** — falta operativa de publicación:
+
+- ✅ `version = "1.0.0"` en pyproject.toml
+- ✅ README rewrite completo (10 módulos, 16 plataformas, ejemplos, badges)
+- ✅ `.github/workflows/publish.yml` — OIDC trusted publisher, trigger en tag `v*`
+- ✅ `action.yml` actualizado con las 16 plataformas
+- ⏳ Crear cuenta PyPI / registrar `cobaltosec-condor` en pypi.org
+- ⏳ Configurar OIDC Trusted Publisher en pypi.org (repo CobaltoSec/condor, workflow publish.yml, env pypi)
+- ⏳ Hacer el repo público en GitHub
+- ⏳ `git tag v1.0.0 && git push --tags` → trigger publish workflow
+
+**Nota**: el publish usa OIDC (sin API token). Hay que configurar el Trusted Publisher en pypi.org ANTES del primer tag push.
 
 ---
 
-### RT-CONDOR-LETTA-BYPASS — ~~Verificar bypass de auth en Letta~~ ✅ INVESTIGADO
+### ~~RT-CONDOR-LETTA-BYPASS — Verificar bypass de auth en Letta~~ ✅ CERRADO
 
-- **Resultado**: `LETTA_SERVER_PASS` completamente ignorado — bypass confirmado en v0.5.1 y v0.16.8
-- **Root cause**: `CheckPasswordMiddleware` solo activa con `LETTA_SERVER_SECURE=true` (opt-in); `LETTA_SERVER_PASS` no hace nada
-- **Ya cubierto**: GHSA-p67m-xf4h-2r78 (CRITICAL, RCE via `/v1/tools/run`) y GHSA-99r8-mqp7-c7wq (HIGH, `/v1/admin/users`) — ambos submiteados por Shrike en junio 2026
-- **Pendiente para siguiente bloque**:
-  1. E2E docker-compose: cambiar `LETTA_SERVER_PASS` → `LETTA_SERVER_SECURE=true` para testear el bypass correctamente
-  2. ASI05 probe nuevo: `POST /v1/tools/run` en Letta — RCE directo (Python exec sin auth); actualmente solo tenemos probe de OWI
-- Talla: S
+- **GHSA**: GHSA-p67m-xf4h-2r78 (CRITICAL, RCE `/v1/tools/run`) · GHSA-99r8-mqp7-c7wq (HIGH, `/v1/admin/users`) — submiteados por Shrike jun 2026
+- **D1 ✅**: `tests/e2e/docker-compose.yml` — Letta usa `LETTA_SERVER_PASS` sin `LETTA_SERVER_SECURE=true` (simula bypass real)
+- **D2 ✅**: `_check_letta_tools_run()` en ASI05 — probe `POST /v1/tools/run`, 5 tests nuevos (372 → 377)
 
 ---
 

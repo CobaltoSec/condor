@@ -45,7 +45,10 @@ services:
     ports:
       - "8283:8283"
     environment:
-      # No LETTA_SERVER_PASS → open REST API
+      # LETTA_SERVER_PASS set but LETTA_SERVER_SECURE=true absent → CheckPasswordMiddleware
+      # never activates → full auth bypass. Simulates a misconfigured production deployment
+      # where the operator believes the password is enforced (GHSA-p67m-xf4h-2r78).
+      LETTA_SERVER_PASS: "condor-e2e-test-password"
       LETTA_PG_URI: ""
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8283/v1/health || exit 1"]

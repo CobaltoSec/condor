@@ -7,7 +7,7 @@ inputs:
     description: Base URL of the agentic platform to scan
     required: true
   platform:
-    description: Platform type (flowise, generic, langflow, dify, autogen, n8n, llamaindex, crewai, langgraph, ollama, openai-compat)
+    description: "Platform type: flowise, langflow, dify, autogen, n8n, llamaindex, crewai, langgraph, ollama, openai-compat, openwebui, hayhooks, letta, qdrant, chroma, generic"
     required: false
     default: generic
   format:
