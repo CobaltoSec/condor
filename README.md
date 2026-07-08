@@ -156,6 +156,10 @@ my-platform = "my_package.platforms:MyPlatform"
 
 Every finding includes references to ISO/IEC 42001, NIST AI RMF, and EU AI Act. CWE IDs are included in SARIF output for integration with SAST tooling.
 
+## Responsible Disclosure
+
+Findings discovered by Condor are reported under the [CobaltoSec Responsible Disclosure Policy](https://github.com/CobaltoSec/disclosure-policy). Vendors are notified privately via GitHub Security Advisory before any public disclosure.
+
 ## License
 
 MIT © [CobaltoSec](https://cobalto-sec.tech)
