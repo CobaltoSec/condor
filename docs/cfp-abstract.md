@@ -14,14 +14,16 @@ La adopción de plataformas de IA agéntica —Flowise, Langflow, Dify, AutoGen�
 
 En esta charla presentamos **Condor**, un scanner de seguridad open-source diseñado específicamente para la superficie de ataque de sistemas agénticos, mapeado sobre el estándar **OWASP ASI Top 10** (Agentic Security Initiative). A diferencia de los scanners genéricos, Condor entiende la semántica de estas plataformas: enumera chatflows, tools y vectorstores, y ejecuta 10 módulos especializados en paralelo para detectar vulnerabilidades propias del paradigma agéntico.
 
-**Demo en vivo:** contra una instancia de Flowise 1.8.2, Condor detecta en 3.6 segundos:
-- Exfiltración de API keys sin autenticación (`/api/v1/apikey` → clave real devuelta)
-- Exposición del system prompt completo incluyendo secretos internos (`ACME-2026-INTERNAL`)
-- Modificación del system prompt sin autenticación — cualquier atacante puede reprogramar el comportamiento del agente
-- Inyección en el vectorstore (RAG poisoning) sin credenciales
-- 9 findings en total: 3 CRITICAL, 5 HIGH, 1 MEDIUM — todos confirmados como true positives
+**Demo en vivo:** contra una instancia de Flowise 1.8.2 (default install), Condor detecta en 3.0 segundos:
+- Exfiltración de credenciales y API keys sin autenticación (`/api/v1/credentials`, `/api/v1/apikey`)
+- Enumeración de variables de entorno y configuraciones internas sin auth (`/api/v1/variables`)
+- Inyección en el vectorstore (RAG poisoning) sin credenciales (`/api/v1/vector/upsert`)
+- 6 findings en total: 2 CRITICAL, 3 HIGH, 1 MEDIUM — todos confirmados como true positives, 0 falsos positivos
+- En instancias con chatflows activos se suman ASI01 (prompt injection) y ASI02 (SSRF/path traversal via tools)
 
 Cada finding corresponde a una vulnerabilidad real publicada en GHSAs del vendor, lo que valida que Condor detecta problemas reales sin conocerlos de antemano.
+
+Los resultados no son específicos de Flowise: el mismo patrón se repite en **Langflow**, **Qdrant**, **Chroma**, **Letta** y otras plataformas agénticas populares — todas con vulnerabilidades detectables en segundos por Condor en su configuración por defecto.
 
 **Además cubrimos:** arquitectura del scanner, cómo extenderlo con plugins propios, integración con GitHub Actions/CI, y el estado actual de seguridad del ecosistema agéntico a nivel global.
 
@@ -35,14 +37,16 @@ The rapid adoption of agentic AI platforms —Flowise, Langflow, Dify, AutoGen�
 
 We present **Condor**, an open-source security scanner purpose-built for agentic system attack surfaces, mapped to the **OWASP ASI Top 10** (Agentic Security Initiative). Unlike generic scanners, Condor understands the semantics of these platforms: it enumerates chatflows, tools, and vectorstores, then runs 10 specialized modules in parallel to detect vulnerabilities native to the agentic paradigm.
 
-**Live demo:** against a Flowise 1.8.2 instance, Condor detects in 3.6 seconds:
-- API key exfiltration without authentication (`/api/v1/apikey` → real key returned)
-- Full system prompt exposure including internal secrets
-- Unauthenticated system prompt modification — any attacker can reprogram agent behavior
-- Vectorstore injection (RAG poisoning) without credentials
-- 9 findings total: 3 CRITICAL, 5 HIGH, 1 MEDIUM — all confirmed true positives
+**Live demo:** against a Flowise 1.8.2 default install, Condor detects in 3.0 seconds:
+- Credential and API key exfiltration without authentication (`/api/v1/credentials`, `/api/v1/apikey`)
+- Environment variable exposure including internal secrets (`/api/v1/variables`)
+- Vectorstore injection (RAG poisoning) without credentials (`/api/v1/vector/upsert`)
+- 6 findings total: 2 CRITICAL, 3 HIGH, 1 MEDIUM — all confirmed true positives, 0 false positives
+- On configured instances (active chatflows + LLMs): additional ASI01 (prompt injection) and ASI02 (SSRF/path traversal) findings
 
 Every finding maps to a vendor-published GHSA, validating that Condor detects real issues without prior knowledge of them.
+
+The pattern is not unique to Flowise: **Langflow**, **Qdrant**, **Chroma**, **Letta**, and other popular agentic platforms share the same vulnerability classes — all detectable in seconds by Condor in their default configuration.
 
 **Also covered:** scanner architecture, custom plugin development, GitHub Actions/CI integration, and the current global state of agentic AI security.
 
@@ -56,7 +60,7 @@ Ingeniero de seguridad, fundador de CobaltoSec (Argentina). Investigación en se
 
 ## Materiales
 
-- Tool: `pip install cobaltosec-condor` (pendiente PyPI)
-- Repo: github.com/cobaltosec/condor (pendiente publicación)
+- Tool: `pip install cobaltosec-condor` — disponible en PyPI
+- Repo: [github.com/CobaltoSec/condor](https://github.com/CobaltoSec/condor) — open-source, MIT
 - Slides: en preparación
-- Demo: Flowise 1.8.2 + Ollama dockerizados, reproducible en laptop
+- Demo: Flowise 1.8.2 + Langflow dockerizados, reproducible en laptop (`docker compose up`)

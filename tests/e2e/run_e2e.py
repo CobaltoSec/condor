@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Condor E2E validation — RT-CONDOR-V10-E2E.
+Condor E2E validation — RT-CONDOR-V10-E2E + RT-CONDOR-CS01.
 
-Scans 5 V09 platforms and documents findings vs. gaps.
+Scans 7 platforms (5 V09 + 2 CS01) and documents findings vs. gaps.
 
 Prerequisites:
     docker compose -f tests/e2e/docker-compose.yml up -d
@@ -96,6 +96,33 @@ TARGETS = [
             "ASI10 HIGH    — POST /api/v1/tools returns 405 (route mismatch or auth-enforced)",
         ],
     },
+    # ── CS01 platforms ──────────────────────────────────────────────────────
+    {
+        "name": "flowise",
+        "platform": "flowise",
+        "url": "http://localhost:3200",
+        "health_url": "http://localhost:3200/api/v1/chatflows",
+        "health_timeout": 60,
+        # Validated in RT-CONDOR-CFP: 9 findings (3C/5H/1M) against Flowise 1.8.2
+        # without auth. ASI03 includes CVE-2026-30820 header bypass probe.
+        "expected_owasp": ["ASI01", "ASI02", "ASI03", "ASI09"],
+        "gaps": [
+            "ASI05 — blind timing probe may vary on cold TCP (warmup request mitigates)",
+        ],
+    },
+    {
+        "name": "langflow",
+        "platform": "langflow",
+        "url": "http://localhost:7860",
+        "health_url": "http://localhost:7860/health",
+        "health_timeout": 120,
+        # LANGFLOW_AUTO_LOGIN=true: simulates misconfigured deployment.
+        # ASI09 guaranteed (/api/v1/version, /openapi.json).
+        # ASI01/ASI03 depend on whether prediction/flow endpoints are accessible
+        # without a token — confirm findings post-scan.
+        "expected_owasp": ["ASI09"],
+        "gaps": [],
+    },
 ]
 
 
@@ -180,7 +207,7 @@ def main() -> None:
         if not targets:
             sys.exit(f"ERROR: unknown platform '{args.platform}'. Available: {[t['name'] for t in TARGETS]}")
 
-    print(f"\nCondor E2E — RT-CONDOR-V10-E2E")
+    print(f"\nCondor E2E — RT-CONDOR-V10-E2E + RT-CONDOR-CS01")
     print(f"Platforms: {', '.join(t['name'] for t in targets)}")
     print(f"Results  : {RESULTS_DIR}")
 

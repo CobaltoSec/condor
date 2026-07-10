@@ -1,5 +1,14 @@
 # Changelog
 
+## [RT-CONDOR-CS01] — 2026-07-10 — CASE STUDIES + E2E FLOWISE/LANGFLOW
+
+- **E2E infra ampliada**: docker-compose + run_e2e.py — flowise:1.8.2 (port 3200; 3000/3100 excluidos por rango Hyper-V 2971-3170) y langflow:latest (port 7860, LANGFLOW_AUTO_LOGIN=true)
+- **Flowise 1.8.2 — scan real**: 6 findings en 3.0s — 2 CRITICAL (`/api/v1/credentials`, `/api/v1/apikey`), 3 HIGH (`/api/v1/variables`, `/api/v1/chatflows`, ASI06 vectorstore upsert), 1 MEDIUM (`/api/v1/tools`)
+- **Langflow 1.10.2 — scan real**: 1 finding — ASI09 LOW (version disclosure via `/openapi.json`); auth enforced en API REST incluso con `LANGFLOW_AUTO_LOGIN=true` (afecta solo la UI)
+- **Case studies**: `docs/case-studies/cs01-flowise-1.8.2.md` (findings reales + análisis + remediación) + `docs/case-studies/cs02-langflow-latest.md` (findings + historial CVEs + comparativa de posturas de seguridad)
+- **CFP abstract actualizado**: métricas reales (6 findings, 3.0s), coverage multi-plataforma (Langflow/Qdrant/Chroma/Letta mencionados), strings "pendiente PyPI/publicación" removidos
+- **GHSA deferred**: Langflow 1.10.2 sin nuevas vulns detectadas; vector potencial (`POST /api/v1/login` + auto-login bypass) documentado en cs02 para investigación separada
+
 ## [RT-CONDOR-PYPI] — 2026-07-10 — PUBLIC RELEASE + PYPI PUBLISH
 
 - **Repo público**: `github.com/CobaltoSec/condor` — creado y pusheado con historial completo; CLAUDE.md + SIGUIENTE.md removidos del repo público (.gitignore)

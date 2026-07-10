@@ -1,4 +1,6 @@
-# Condor E2E — 5 V09 platforms, no auth (finding detection targets)
+# Condor E2E — 7 platforms, no auth / misconfigured (finding detection targets)
+# V09 platforms: qdrant, chroma, hayhooks, letta, openwebui
+# CS01 platforms: flowise, langflow
 # Usage: docker compose -f tests/e2e/docker-compose.yml up -d
 # Then:  python tests/e2e/run_e2e.py
 name: condor-e2e
@@ -76,3 +78,42 @@ services:
       timeout: 5s
       retries: 18
       start_period: 40s
+
+  # ── CS01 platforms ─────────────────────────────────────────────────────────
+
+  flowise:
+    # 1.8.x: auth not enforced when FLOWISE_USERNAME/PASSWORD are empty.
+    # 2.x+ forces workspace auth by default — use 1.8.x for E2E finding detection.
+    # Port 3000 is in Windows Hyper-V excluded range (2971-3070) — mapped to 3200.
+    image: flowiseai/flowise:1.8.2
+    ports:
+      - "3200:3000"
+    environment:
+      FLOWISE_USERNAME: ""
+      FLOWISE_PASSWORD: ""
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/v1/chatflows || exit 1"]
+      # Note: healthcheck runs inside container (port 3000), host accesses via 3200
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  langflow:
+    # LANGFLOW_AUTO_LOGIN=true: web UI auto-logs in without credentials.
+    # Simulates the common misconfiguration where operators enable this for convenience
+    # without realizing it allows unauthenticated API access patterns.
+    image: langflowai/langflow:latest
+    ports:
+      - "7860:7860"
+    environment:
+      LANGFLOW_AUTO_LOGIN: "true"
+      LANGFLOW_SUPERUSER: "admin"
+      LANGFLOW_SUPERUSER_PASSWORD: "admin"
+      LANGFLOW_SECRET_KEY: "condor-e2e-insecure-key"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7860/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 45s
