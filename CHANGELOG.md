@@ -1,5 +1,13 @@
 # Changelog
 
+## [RT-CONDOR-PYPI] — 2026-07-10 — PUBLIC RELEASE + PYPI PUBLISH
+
+- **Repo público**: `github.com/CobaltoSec/condor` — creado y pusheado con historial completo; CLAUDE.md + SIGUIENTE.md removidos del repo público (.gitignore)
+- **PyPI publish**: tag `v1.0.0` → workflow OIDC → `cobaltosec-condor 1.0.0` en PyPI; verificado con `pip install cobaltosec-condor` + `condor --help`
+- **GitHub Release**: `v1.0.0` con release notes user-facing (install, quick start, módulos, plataformas)
+- **Topics del repo**: `security`, `ai`, `agents`, `owasp`, `agentic-ai`, `red-team`, `flowise`, `langflow`, `pentesting`, `llm`
+- **Org README**: Condor agregado a tabla de Frameworks en `CobaltoSec/.github` (debajo de Corvus)
+
 ## [RT-CONDOR-LETTA-BYPASS + RT-CONDOR-PYPI] — 2026-07-07 — LETTA RCE PROBE + v1.0.0 PYPI PREP
 
 - **ASI05 — Letta `/v1/tools/run` probe**: `_check_letta_tools_run()` — POST con Python arbitrario sin auth (GHSA-p67m-xf4h-2r78); CRITICAL 98 si `uid=` confirmado, fallback `os.getcwd()` (90/80); 5 tests nuevos (372 → **377/377 passing**)
