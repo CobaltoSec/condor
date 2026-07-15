@@ -7,6 +7,8 @@
 [![Python 3.11+](https://img.shields.io/pypi/pyversions/cobaltosec-condor)](https://pypi.org/project/cobaltosec-condor/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+Current release: <!-- CONDOR_VERSION_START -->v1.0.0<!-- CONDOR_VERSION_END -->
+
 Condor scans agentic AI platforms for security vulnerabilities mapped to the [OWASP Top 10 for Agentic Applications](https://owasp.org/www-project-top-10-for-agentic-applications/). It understands the semantics of each platform — enumerating chatflows, tools, vectorstores, and agent surfaces — then runs 10 specialized modules in parallel.
 
 Against a Flowise 1.8.2 instance, Condor finds **9 findings in 3.6 seconds** — 3 CRITICAL, 5 HIGH, 1 MEDIUM — all confirmed true positives mapping to published GHSAs.
@@ -56,7 +58,7 @@ condor scan --url http://localhost:3000 --platform flowise -m privilege-abuse -m
 | `trust-exploitation` | ASI09 | System prompt exposure, AI identity disclosure |
 | `rogue-agents` | ASI10 | Unauthenticated agent/tool creation, webhook registration |
 
-## Supported platforms — 16
+## Supported platforms — <!-- CONDOR_TARGETS_START -->16<!-- CONDOR_TARGETS_END -->
 
 | Platform | `--platform` | Notes |
 |----------|-------------|-------|
