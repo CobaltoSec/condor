@@ -290,3 +290,99 @@ async def test_owui_tool_registration_high():
     owui = [f for f in findings if "Open WebUI tool registration endpoint accessible" in f.title]
     assert len(owui) == 1
     assert owui[0].severity == Severity.HIGH
+
+
+# ---------------------------------------------------------------------------
+# Cleanup tests — vectorstore probes
+# ---------------------------------------------------------------------------
+
+_QDRANT_EP = "/collections/condor-probe"
+_CHROMA_V2_BASE = "/api/v2/tenants/default_tenant/databases/default_database/collections"
+
+
+def _tracking_platform(put_resp=None, post_resp=None):
+    """Platform that tracks DELETE calls and returns a 404 HTML stub for everything else."""
+    resp_404 = MagicMock(status_code=404, text="", content=b"")
+    resp_404.headers = {"content-type": "text/html"}
+
+    delete_calls = []
+
+    async def _put(path, **kw):
+        return put_resp if put_resp and path == _QDRANT_EP else resp_404
+
+    async def _post(path, **kw):
+        return post_resp if post_resp and path == _CHROMA_V2_BASE else resp_404
+
+    async def _delete(path, **kw):
+        delete_calls.append(path)
+        return MagicMock(status_code=200)
+
+    async def _get(path, **kw):
+        return resp_404
+
+    plat = MagicMock()
+    plat.put = _put
+    plat.post = _post
+    plat.delete = _delete
+    plat.get = _get
+    plat._delete_calls = delete_calls
+    return plat
+
+
+@pytest.mark.asyncio
+async def test_qdrant_cleanup_called_on_200():
+    """Qdrant PUT 200 (CRITICAL) → DELETE /collections/condor-probe is called."""
+    mod = RogueAgentsModule()
+    plat = _tracking_platform(put_resp=_json_resp(200, {"result": True, "status": "ok"}))
+    findings = await mod._check_vectorstore_creation(plat)
+    qdrant = [f for f in findings if "Qdrant" in f.title]
+    assert len(qdrant) == 1
+    assert qdrant[0].severity == Severity.CRITICAL
+    assert _QDRANT_EP in plat._delete_calls
+
+
+@pytest.mark.asyncio
+async def test_qdrant_cleanup_called_on_400():
+    """Qdrant PUT 400 (HIGH) → DELETE /collections/condor-probe is called even for 400."""
+    mod = RogueAgentsModule()
+    plat = _tracking_platform(put_resp=_json_resp(400, {"status": "error", "error": "Wrong input"}))
+    findings = await mod._check_vectorstore_creation(plat)
+    qdrant = [f for f in findings if "Qdrant" in f.title]
+    assert len(qdrant) == 1
+    assert qdrant[0].severity == Severity.HIGH
+    assert _QDRANT_EP in plat._delete_calls
+
+
+@pytest.mark.asyncio
+async def test_qdrant_cleanup_result_does_not_add_finding():
+    """DELETE returning 200 does not produce any extra findings."""
+    mod = RogueAgentsModule()
+    plat = _tracking_platform(put_resp=_json_resp(200, {"result": True, "status": "ok"}))
+    findings = await mod._check_vectorstore_creation(plat)
+    # Only the CRITICAL Qdrant finding; no cleanup/persist finding
+    assert all("persist" not in f.title.lower() and "cleanup" not in f.title.lower() for f in findings)
+    assert _QDRANT_EP in plat._delete_calls
+
+
+@pytest.mark.asyncio
+async def test_chroma_cleanup_called_on_200():
+    """Chroma POST 200 (CRITICAL) → DELETE .../collections/condor-probe is called."""
+    mod = RogueAgentsModule()
+    plat = _tracking_platform(post_resp=_json_resp(200, {"id": "coll-abc", "name": "condor-probe"}))
+    findings = await mod._check_vectorstore_creation(plat)
+    chroma = [f for f in findings if "Chroma" in f.title]
+    assert len(chroma) == 1
+    assert chroma[0].severity == Severity.CRITICAL
+    assert f"{_CHROMA_V2_BASE}/condor-probe" in plat._delete_calls
+
+
+@pytest.mark.asyncio
+async def test_chroma_cleanup_called_on_409():
+    """Chroma POST 409 (HIGH, collection already exists) → DELETE is called for best-effort cleanup."""
+    mod = RogueAgentsModule()
+    plat = _tracking_platform(post_resp=_json_resp(409, {"error": "Collection already exists"}))
+    findings = await mod._check_vectorstore_creation(plat)
+    chroma = [f for f in findings if "Chroma" in f.title]
+    assert len(chroma) == 1
+    assert chroma[0].severity == Severity.HIGH
+    assert f"{_CHROMA_V2_BASE}/condor-probe" in plat._delete_calls

@@ -71,6 +71,10 @@ _LETTA_RUN_PATH_PAYLOAD = {
     "args": {},
 }
 
+# Hayhooks — pipeline execution without auth
+_HAYHOOKS_RUN_BODY     = {}
+_HAYHOOKS_RUN_BODY_ALT = {"data": {}}
+
 # Open WebUI — Python function creation (filter/action type, executed on chat events)
 _OWI_FUNCTION_ENDPOINT = "/api/v1/functions"
 _OWI_FUNCTION_PAYLOAD  = {
@@ -148,6 +152,103 @@ class CodeExecutionModule(BaseModule):
                     ))
         except Exception:
             pass
+        return findings
+
+    async def _check_hayhooks_pipeline_exec(
+        self, surface: AgentSurface, platform: BasePlatform
+    ) -> list[Finding]:
+        """Probe Hayhooks pipeline run endpoints without authentication (CWE-306)."""
+        findings: list[Finding] = []
+
+        # Build pipeline list from enumerated surface first
+        pipelines: list[str] = []
+        for flow in surface.flows:
+            name = flow.get("name") or flow.get("id", "")
+            if name:
+                pipelines.append(str(name))
+
+        # If the surface was not pre-enumerated, fetch /pipelines directly
+        if not pipelines:
+            try:
+                r = await platform.get("/pipelines")
+                if r.status_code == 200 and _is_api_response(r):
+                    data = r.json()
+                    items = data if isinstance(data, list) else data.get("pipelines", [])
+                    for item in items:
+                        if isinstance(item, str):
+                            pipelines.append(item)
+                        elif isinstance(item, dict):
+                            name = item.get("name") or item.get("id", "")
+                            if name:
+                                pipelines.append(str(name))
+            except Exception:
+                pass
+
+        if not pipelines:
+            return findings
+
+        for pipe_name in pipelines[:3]:
+            endpoint     = f"/pipelines/{pipe_name}/run"
+            alt_endpoint = f"/{pipe_name}/run"
+            used_endpoint = endpoint
+
+            try:
+                r = await platform.post(endpoint, json=_HAYHOOKS_RUN_BODY)
+                # Older Hayhooks served pipelines at /{name}/run directly
+                if r.status_code == 404:
+                    r = await platform.post(alt_endpoint, json=_HAYHOOKS_RUN_BODY_ALT)
+                    used_endpoint = alt_endpoint
+
+                if not _is_api_response(r):
+                    continue
+                if r.status_code in (401, 403, 404):
+                    continue
+
+                evidence_snippet = (r.text or "")[:200]
+
+                if r.status_code in (200, 201, 202):
+                    findings.append(Finding(
+                        title=f"Unauthenticated pipeline execution via {used_endpoint}",
+                        severity=Severity.CRITICAL,
+                        owasp_id=self.owasp_id,
+                        description=(
+                            f"The Hayhooks pipeline '{pipe_name}' can be triggered without "
+                            f"authentication. An unauthenticated attacker can run arbitrary "
+                            f"Haystack pipelines, including those that read files, call external "
+                            f"APIs, or execute arbitrary Python components."
+                        ),
+                        evidence=f"POST {used_endpoint} → {r.status_code}. Response: {evidence_snippet}",
+                        remediation=(
+                            "Enable Hayhooks API-key authentication (--auth / HAYHOOKS_SECURITY_* env vars). "
+                            "Restrict pipeline execution endpoints to authenticated users."
+                        ),
+                        confidence=90,
+                        cwe_id="CWE-306",
+                        endpoint=used_endpoint,
+                    ))
+                elif r.status_code == 422:
+                    findings.append(Finding(
+                        title=f"Hayhooks pipeline endpoint accessible without authentication: {used_endpoint}",
+                        severity=Severity.HIGH,
+                        owasp_id=self.owasp_id,
+                        description=(
+                            f"The Hayhooks pipeline '{pipe_name}' run endpoint accepted an "
+                            f"unauthenticated request and returned HTTP 422 (Unprocessable Entity). "
+                            f"Authentication was not enforced — only payload validation failed. "
+                            f"A correctly formatted request body may trigger full pipeline execution."
+                        ),
+                        evidence=f"POST {used_endpoint} → 422 (auth not enforced, payload rejected). Response: {evidence_snippet}",
+                        remediation=(
+                            "Enable Hayhooks authentication. "
+                            "Restrict pipeline execution endpoints to authenticated users."
+                        ),
+                        confidence=75,
+                        cwe_id="CWE-306",
+                        endpoint=used_endpoint,
+                    ))
+            except Exception:
+                pass
+
         return findings
 
     async def _check_owui_functions(self, platform: BasePlatform) -> list[Finding]:
@@ -404,5 +505,9 @@ class CodeExecutionModule(BaseModule):
 
         # Open WebUI: Python function creation endpoint
         findings.extend(await self._check_owui_functions(platform))
+
+        # Hayhooks: pipeline execution without auth (CWE-306)
+        if surface.platform == "hayhooks":
+            findings.extend(await self._check_hayhooks_pipeline_exec(surface, platform))
 
         return findings

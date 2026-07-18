@@ -460,3 +460,150 @@ async def test_owui_function_html_filtered():
     findings = await mod.run(_surface(), plat)
     owui = [f for f in findings if "/api/v1/functions" in f.endpoint]
     assert owui == []
+
+
+# ── Hayhooks pipeline execution ───────────────────────────────────────────────
+
+
+def _hayhooks_surface(**kwargs) -> AgentSurface:
+    defaults = {"platform": "hayhooks", "base_url": "http://localhost:1416"}
+    defaults.update(kwargs)
+    return AgentSurface(**defaults)
+
+
+@pytest.mark.asyncio
+async def test_hayhooks_pipeline_exec_200_critical():
+    """Pipeline in surface.flows, POST /pipelines/name/run → 200 → CRITICAL."""
+    mod = CodeExecutionModule()
+    plat = MagicMock()
+
+    async def _post(path, **kw):
+        if path == "/pipelines/my-pipeline/run":
+            return _resp_200('{"result": "ok"}')
+        return resp_404
+
+    plat.post = _post
+    surface = _hayhooks_surface(flows=[{"name": "my-pipeline"}])
+    findings = await mod.run(surface, plat)
+    hh = [f for f in findings if "pipeline" in f.title.lower() and f.cwe_id == "CWE-306"]
+    assert len(hh) >= 1
+    assert hh[0].severity == Severity.CRITICAL
+    assert hh[0].confidence == 90
+    assert hh[0].cwe_id == "CWE-306"
+
+
+@pytest.mark.asyncio
+async def test_hayhooks_pipeline_exec_422_high():
+    """POST /pipelines/name/run → 422 → HIGH (endpoint reachable, payload rejected)."""
+    mod = CodeExecutionModule()
+    plat = MagicMock()
+
+    async def _post(path, **kw):
+        if path == "/pipelines/my-pipeline/run":
+            r = MagicMock(status_code=422, text='{"detail": "validation error"}', content=b"{}")
+            r.headers = {"content-type": "application/json"}
+            return r
+        return resp_404
+
+    plat.post = _post
+    surface = _hayhooks_surface(flows=[{"name": "my-pipeline"}])
+    findings = await mod.run(surface, plat)
+    hh = [f for f in findings if "pipeline" in f.title.lower() and f.cwe_id == "CWE-306"]
+    assert len(hh) >= 1
+    assert hh[0].severity == Severity.HIGH
+    assert hh[0].confidence == 75
+    assert "422" in hh[0].evidence
+
+
+@pytest.mark.asyncio
+async def test_hayhooks_pipeline_exec_401_no_finding():
+    """POST /pipelines/name/run → 401 → no finding (auth enforced)."""
+    mod = CodeExecutionModule()
+    plat = MagicMock()
+
+    async def _post(path, **kw):
+        if path == "/pipelines/my-pipeline/run":
+            r = MagicMock(status_code=401, text="Unauthorized", content=b"Unauthorized")
+            r.headers = {"content-type": "application/json"}
+            return r
+        return resp_404
+
+    plat.post = _post
+    surface = _hayhooks_surface(flows=[{"name": "my-pipeline"}])
+    findings = await mod.run(surface, plat)
+    hh = [f for f in findings if "Hayhooks" in f.description]
+    assert hh == []
+
+
+@pytest.mark.asyncio
+async def test_hayhooks_pipeline_exec_empty_flows_fetches_list():
+    """surface.flows empty → GET /pipelines returns list → probe → CRITICAL finding."""
+    mod = CodeExecutionModule()
+    plat = MagicMock()
+
+    async def _get(path, **kw):
+        if path == "/pipelines":
+            r = MagicMock(status_code=200, text='[{"name": "qa-pipeline"}]', content=b'[]')
+            r.headers = {"content-type": "application/json"}
+            r.json.return_value = [{"name": "qa-pipeline"}]
+            return r
+        return resp_404
+
+    async def _post(path, **kw):
+        if path == "/pipelines/qa-pipeline/run":
+            return _resp_200('{"result": "ok"}')
+        return resp_404
+
+    plat.get = _get
+    plat.post = _post
+    surface = _hayhooks_surface()  # flows=[]
+    findings = await mod.run(surface, plat)
+    hh = [f for f in findings if "pipeline" in f.title.lower() and f.cwe_id == "CWE-306"]
+    assert len(hh) >= 1
+    assert hh[0].severity == Severity.CRITICAL
+
+
+@pytest.mark.asyncio
+async def test_hayhooks_no_pipelines_no_finding():
+    """surface.flows empty AND GET /pipelines returns empty list → no finding."""
+    mod = CodeExecutionModule()
+    plat = MagicMock()
+
+    async def _get(path, **kw):
+        if path == "/pipelines":
+            r = MagicMock(status_code=200, text="[]", content=b"[]")
+            r.headers = {"content-type": "application/json"}
+            r.json.return_value = []
+            return r
+        return resp_404
+
+    plat.get = _get
+    plat.post = AsyncMock(return_value=resp_404)
+    surface = _hayhooks_surface()
+    findings = await mod.run(surface, plat)
+    hh = [f for f in findings if f.cwe_id == "CWE-306" and "pipeline" in f.title.lower()]
+    assert hh == []
+
+
+@pytest.mark.asyncio
+async def test_hayhooks_older_url_fallback_critical():
+    """POST /pipelines/name/run → 404 → fallback POST /name/run → 200 → CRITICAL."""
+    mod = CodeExecutionModule()
+    plat = MagicMock()
+
+    async def _post(path, **kw):
+        if path == "/pipelines/my-pipeline/run":
+            r = MagicMock(status_code=404, text="not found", content=b"not found")
+            r.headers = {"content-type": "application/json"}
+            return r
+        if path == "/my-pipeline/run":
+            return _resp_200('{"result": "ok"}')
+        return resp_404
+
+    plat.post = _post
+    surface = _hayhooks_surface(flows=[{"name": "my-pipeline"}])
+    findings = await mod.run(surface, plat)
+    hh = [f for f in findings if "pipeline" in f.title.lower() and f.cwe_id == "CWE-306"]
+    assert len(hh) >= 1
+    assert hh[0].severity == Severity.CRITICAL
+    assert "/my-pipeline/run" in hh[0].endpoint

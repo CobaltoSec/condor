@@ -1,5 +1,16 @@
 # Changelog
 
+## [RT-CONDOR-V11] — 2026-07-18 — MODULE FIXES + NEW PROBES
+
+- **ASI03 — Langflow default creds + n8n endpoints**: `_check_langflow_auto_login()` — prueba `langflow/langflow` y `admin/admin` en `/api/v1/login` + `/api/v1/auth/login`; 200 + token (len > 20) → CRITICAL CWE-1392; 422 ignorado (validation error ≠ auth check). n8n: `/api/v1/executions` (CRITICAL) + `/rest/owner` (HIGH) agregados a `_SENSITIVE`
+- **ASI05 — Hayhooks pipeline execution**: `_check_hayhooks_pipeline_exec()` — enumera pipelines de `surface.flows` o `GET /pipelines`, ejecuta `POST /pipelines/{name}/run` (fallback `POST /{name}/run` versión older); 200/201/202 → CRITICAL, 422 → HIGH; CWE-306
+- **ASI06 — Vector injection con dimension detection**: `_check_qdrant_vector_injection(collection)` — `GET /collections/{name}` para leer dim, `POST /points` con vector correcto, cleanup `POST /points/delete {points:[9999999]}` en `finally`; CRITICAL/HIGH. `_check_chroma_vector_injection(collection)` — `POST /add` + cleanup en `finally`. `_check_vectorstore_collections()` retorna tuple con nombres de colecciones Qdrant/Chroma
+- **ASI07/ASI09 — Active flow discovery**: `_discover_flow_ids(platform)` helper en ambos módulos — antes del early return por `flow_ids` vacío, prueba activamente `GET /api/v1/chatflows`, `/api/v1/flows`, `/api/v1/agents`; fix en 5 funciones (ASI09: `_check_system_prompt_exposure`, `_check_ai_disclosure`, `_check_system_prompt_modification`; ASI07: `_check_internal_prediction`, `_check_origin_forgery`)
+- **ASI08 — Health probe separation**: `_HEALTH_PROBE_ENDPOINTS` al inicio de `_INFERENCE_PROBE_ENDPOINTS` (GET probe); `_BURST_PROBE_ENDPOINTS` excluye health (POST a /health → 405 = FP en burst check)
+- **ASI10 — Cleanup post-probe**: flags `_qdrant_probed`/`_chroma_probed` en `finally` → `DELETE /collections/condor-probe` (Qdrant) + equivalente Chroma; best-effort, resultado ignorado, finding ya registrado
+- **E2E validado**: 7/7 plataformas OK, 19 findings, 0 errores, 0 regresiones
+- +38 tests (377 → **415/415 passing**)
+
 ## [RT-CONDOR-CS01] — 2026-07-10 — CASE STUDIES + E2E FLOWISE/LANGFLOW
 
 - **E2E infra ampliada**: docker-compose + run_e2e.py — flowise:1.8.2 (port 3200; 3000/3100 excluidos por rango Hyper-V 2971-3170) y langflow:latest (port 7860, LANGFLOW_AUTO_LOGIN=true)

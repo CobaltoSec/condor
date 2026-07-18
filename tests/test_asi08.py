@@ -3,7 +3,11 @@ import pytest
 from unittest.mock import MagicMock
 
 from condor.core.models import AgentSurface, OWASPCategory, Severity
-from condor.modules.asi08_cascading import CascadingFailuresModule
+from condor.modules.asi08_cascading import (
+    CascadingFailuresModule,
+    _HEALTH_PROBE_ENDPOINTS,
+    _BURST_PROBE_ENDPOINTS,
+)
 
 
 def _surface(**kwargs) -> AgentSurface:
@@ -204,3 +208,64 @@ async def test_burst_probe_rate_limit_headers_suppresses_finding():
     findings = await mod.run(_surface(), platform)
     burst = [f for f in findings if "Burst Load" in f.title]
     assert burst == []
+
+
+@pytest.mark.asyncio
+async def test_health_endpoint_no_rate_limit_medium():
+    """Health endpoint returning 200 without rate-limit headers → MEDIUM finding."""
+    mod = CascadingFailuresModule()
+    resp = MagicMock(status_code=200, text="ok", content=b"ok")
+    resp.headers = {"content-type": "application/json"}
+    platform = _mock_platform({"/health": resp})
+    findings = await mod.run(_surface(), platform)
+    rl = [f for f in findings if "No rate limiting" in f.title and "/health" in f.endpoint]
+    assert len(rl) == 1
+    assert rl[0].severity == Severity.MEDIUM
+    assert rl[0].owasp_id == OWASPCategory.ASI08
+
+
+@pytest.mark.asyncio
+async def test_burst_probe_excludes_health_endpoints():
+    """Burst probe must not POST to health endpoints — they respond 405 to POST (false positive).
+
+    Invariant: all _HEALTH_PROBE_ENDPOINTS are absent from _BURST_PROBE_ENDPOINTS.
+    Behavioral check: if burst accidentally probed /health via POST and got 200/JSON,
+    it would produce a spurious 'Burst Load' finding — assert that never happens.
+    """
+    # Module-level invariant
+    for ep in _HEALTH_PROBE_ENDPOINTS:
+        assert ep not in _BURST_PROBE_ENDPOINTS, (
+            f"{ep} found in _BURST_PROBE_ENDPOINTS — health endpoints must be excluded"
+        )
+
+    mod = CascadingFailuresModule()
+    resp_json_200 = MagicMock(status_code=200, text="ok", content=b"ok")
+    resp_json_200.headers = {"content-type": "application/json"}
+    resp_html = MagicMock(status_code=404, text="Not Found", content=b"Not Found")
+    resp_html.headers = {"content-type": "text/html"}
+
+    # /health responds 200/JSON to both GET and POST.
+    # If burst mistakenly POSTs to it and gets 200/JSON → burst finding would appear.
+    async def _get(path, **kw):
+        return resp_json_200 if path in _HEALTH_PROBE_ENDPOINTS else resp_html
+
+    async def _post(path, **kw):
+        return resp_json_200 if path in _HEALTH_PROBE_ENDPOINTS else resp_html
+
+    async def _delete(path, **kw):
+        return resp_html
+
+    plat = MagicMock()
+    plat.get = _get
+    plat.post = _post
+    plat.delete = _delete
+
+    findings = await mod.run(_surface(), plat)
+
+    burst = [f for f in findings if "Burst Load" in f.title]
+    assert burst == [], "No burst finding expected — health endpoints excluded from burst probe"
+
+    # _check_rate_limits (GET) must still produce MEDIUM for /health
+    rl = [f for f in findings if "No rate limiting" in f.title]
+    assert len(rl) == 1
+    assert "/health" in rl[0].endpoint

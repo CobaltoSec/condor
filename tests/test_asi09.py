@@ -255,6 +255,56 @@ async def test_version_exposure_html_filtered():
 
 
 @pytest.mark.asyncio
+async def test_system_prompt_exposure_active_discovery():
+    """surface.flows empty → discovery via GET /chatflows → exposure check continues."""
+    mod = TrustExploitationModule()
+    surface = _surface(flows=[])
+    discovery_resp = _json_resp(200, [{"id": "disc-1"}])
+    flow_resp = _json_resp(200, {"id": "disc-1", "systemMessage": "You are a helpful assistant."})
+    platform = _mock_platform(
+        get_responses={
+            "/api/v1/chatflows": discovery_resp,
+            "/api/v1/chatflows/disc-1": flow_resp,
+        }
+    )
+    findings = await mod.run(surface, platform)
+    sp = [f for f in findings if "system prompt exposure" in f.title]
+    assert len(sp) == 1
+
+
+@pytest.mark.asyncio
+async def test_ai_disclosure_active_discovery():
+    """surface.flows empty → discovery via GET /chatflows → disclosure check continues."""
+    mod = TrustExploitationModule()
+    surface = _surface(flows=[])
+    discovery_resp = _json_resp(200, [{"id": "disc-2"}])
+    infer_resp = _json_resp(200, {"text": "I am a human agent here to help you today."})
+    platform = _mock_platform(
+        get_responses={"/api/v1/chatflows": discovery_resp},
+        post_responses={"/api/v1/prediction/disc-2": infer_resp},
+    )
+    findings = await mod.run(surface, platform)
+    disc = [f for f in findings if "AI Disclosure Failure" in f.title]
+    assert len(disc) == 1
+
+
+@pytest.mark.asyncio
+async def test_system_prompt_modification_active_discovery():
+    """surface.flows empty → discovery via GET /chatflows → modification check continues."""
+    mod = TrustExploitationModule()
+    surface = _surface(flows=[])
+    discovery_resp = _json_resp(200, [{"id": "disc-3"}])
+    put_resp = _json_resp(200, {"id": "disc-3", "systemMessage": "condor-probe"})
+    platform = _mock_platform(
+        get_responses={"/api/v1/chatflows": discovery_resp},
+        put_responses={"/api/v1/chatflows/disc-3": put_resp},
+    )
+    findings = await mod.run(surface, platform)
+    mod_f = [f for f in findings if "modification accepted" in f.title]
+    assert len(mod_f) == 1
+
+
+@pytest.mark.asyncio
 async def test_version_exposure_openapi_json_nested():
     """GET /openapi.json with nested info.version → LOW finding."""
     mod = TrustExploitationModule()

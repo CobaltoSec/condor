@@ -33,6 +33,9 @@ _SENSITIVE = [
     ("/status",              Severity.MEDIUM,   "Hayhooks service status and pipeline list"),
     # Letta
     ("/v1/agents",           Severity.HIGH,     "Letta agent registry"),
+    # n8n
+    ("/api/v1/executions",   Severity.CRITICAL, "execution history of all workflows"),
+    ("/rest/owner",          Severity.HIGH,     "n8n instance owner/admin information"),
 ]
 
 # Endpoints that allow unauthenticated writes (worse than reads)
@@ -137,6 +140,55 @@ class PrivilegeAbuseModule(BaseModule):
                 pass
         return findings
 
+    _LANGFLOW_DEFAULT_CREDS = [
+        ("langflow", "langflow"),
+        ("admin", "admin"),
+    ]
+    _LANGFLOW_LOGIN_ENDPOINTS = ["/api/v1/login", "/api/v1/auth/login"]
+
+    async def _check_langflow_auto_login(self, platform: BasePlatform) -> list[Finding]:
+        for endpoint in self._LANGFLOW_LOGIN_ENDPOINTS:
+            for username, password in self._LANGFLOW_DEFAULT_CREDS:
+                try:
+                    r = await platform.post(endpoint, json={"username": username, "password": password})
+                    if r.status_code == 422:
+                        continue  # validation error — malformed/empty creds rejected before auth check
+                    if r.status_code != 200:
+                        continue
+                    try:
+                        body = r.json()
+                    except Exception:
+                        continue
+                    token = body.get("access_token", "")
+                    if not token or len(token) <= 20:
+                        continue
+                    return [Finding(
+                        title="Default credentials accepted",
+                        severity=Severity.CRITICAL,
+                        owasp_id=self.owasp_id,
+                        description=(
+                            f"Langflow accepted default credentials '{username}/{password}' at "
+                            f"{endpoint}, returning a valid access token. An attacker can gain "
+                            f"full authenticated access to the Langflow instance without any prior "
+                            f"knowledge of the deployment."
+                        ),
+                        evidence=(
+                            f"POST {endpoint} {{username: {username!r}, password: {password!r}}} "
+                            f"→ 200 OK + access_token (len={len(token)})"
+                        ),
+                        remediation=(
+                            "Change the default Langflow credentials immediately. "
+                            "Set LANGFLOW_SUPERUSER and LANGFLOW_SUPERUSER_PASSWORD environment "
+                            "variables to strong, unique values before deployment."
+                        ),
+                        confidence=98,
+                        cwe_id="CWE-1392",
+                        endpoint=endpoint,
+                    )]
+                except Exception:
+                    pass
+        return []
+
     async def run(self, surface: AgentSurface, platform: BasePlatform) -> list[Finding]:
         findings: list[Finding] = []
 
@@ -238,4 +290,5 @@ class PrivilegeAbuseModule(BaseModule):
 
         findings.extend(await self._check_idor(platform))
         findings.extend(await self._check_header_bypass(platform))
+        findings.extend(await self._check_langflow_auto_login(platform))
         return findings

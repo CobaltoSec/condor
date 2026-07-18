@@ -256,3 +256,76 @@ async def test_letta_agents_exposed():
     assert len(agents) == 1
     assert agents[0].severity == Severity.HIGH
     assert agents[0].owasp_id == OWASPCategory.ASI03
+
+
+# ── Langflow default credentials ─────────────────────────────────────────────
+
+_MOCK_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.mock_payload_here"
+
+
+@pytest.mark.asyncio
+async def test_langflow_default_creds_detected():
+    """POST /api/v1/login with langflow/langflow → 200 + token → CRITICAL finding."""
+    mod = PrivilegeAbuseModule()
+    post_resp = {
+        "/api/v1/login": _resp(200, {"access_token": _MOCK_TOKEN, "token_type": "bearer"}),
+    }
+    findings = await mod.run(_surface(), _mock_platform(post_responses=post_resp))
+    default_creds = [f for f in findings if "Default credentials" in f.title]
+    assert len(default_creds) == 1
+    assert default_creds[0].severity == Severity.CRITICAL
+    assert default_creds[0].cwe_id == "CWE-1392"
+    assert "langflow" in default_creds[0].evidence
+
+
+@pytest.mark.asyncio
+async def test_langflow_default_creds_422_no_finding():
+    """POST → 422 validation error → no finding (creds malformed before auth check)."""
+    mod = PrivilegeAbuseModule()
+    post_resp = {
+        "/api/v1/login": _resp(422),
+        "/api/v1/auth/login": _resp(422),
+    }
+    findings = await mod.run(_surface(), _mock_platform(post_responses=post_resp))
+    assert not any("Default credentials" in f.title for f in findings)
+
+
+@pytest.mark.asyncio
+async def test_langflow_default_creds_401_no_finding():
+    """POST → 401 unauthorized → no finding (creds changed from default)."""
+    mod = PrivilegeAbuseModule()
+    post_resp = {
+        "/api/v1/login": _resp(401),
+        "/api/v1/auth/login": _resp(401),
+    }
+    findings = await mod.run(_surface(), _mock_platform(post_responses=post_resp))
+    assert not any("Default credentials" in f.title for f in findings)
+
+
+# ── n8n sensitive endpoints ───────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_n8n_executions_exposed():
+    """GET /api/v1/executions returns 200 → CRITICAL finding for n8n execution history."""
+    mod = PrivilegeAbuseModule()
+    resp = _resp(200, [{"id": 1, "workflowId": "abc", "status": "success"}])
+    get_resp = {"/api/v1/executions": resp}
+    findings = await mod.run(_surface(), _mock_platform(get_responses=get_resp))
+    exec_findings = [f for f in findings if "/api/v1/executions" in f.title]
+    assert len(exec_findings) == 1
+    assert exec_findings[0].severity == Severity.CRITICAL
+    assert exec_findings[0].owasp_id == OWASPCategory.ASI03
+
+
+@pytest.mark.asyncio
+async def test_n8n_owner_exposed():
+    """GET /rest/owner returns 200 → HIGH finding for n8n owner/admin info exposure."""
+    mod = PrivilegeAbuseModule()
+    resp = _resp(200, {"email": "admin@example.com", "firstName": "Admin"})
+    get_resp = {"/rest/owner": resp}
+    findings = await mod.run(_surface(), _mock_platform(get_responses=get_resp))
+    owner_findings = [f for f in findings if "/rest/owner" in f.title]
+    assert len(owner_findings) == 1
+    assert owner_findings[0].severity == Severity.HIGH
+    assert owner_findings[0].owasp_id == OWASPCategory.ASI03

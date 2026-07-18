@@ -101,6 +101,22 @@ def _has_system_prompt_field(text: str) -> bool:
     return any(f.lower() in text_lower for f in _SYSTEM_PROMPT_FIELDS)
 
 
+async def _discover_flow_ids(platform: BasePlatform) -> list[str]:
+    """Active discovery: probe known list endpoints when surface.flows is empty."""
+    for endpoint in ("/api/v1/chatflows", "/api/v1/flows", "/api/v1/agents"):
+        try:
+            r = await platform.get(endpoint)
+            if r.status_code == 200 and _is_api_response(r):
+                data = r.json()
+                if isinstance(data, list) and data:
+                    ids = [item.get("id") for item in data if isinstance(item, dict) and item.get("id")]
+                    if ids:
+                        return ids
+        except Exception:
+            pass
+    return []
+
+
 class TrustExploitationModule(BaseModule):
     name        = "trust-exploitation"
     owasp_id    = OWASPCategory.ASI09
@@ -119,7 +135,9 @@ class TrustExploitationModule(BaseModule):
         findings = []
         flow_ids = [f.get("id") for f in surface.flows if isinstance(f, dict) and f.get("id")]
         if not flow_ids:
-            return findings
+            flow_ids = await _discover_flow_ids(platform)
+            if not flow_ids:
+                return findings
 
         for flow_id in flow_ids[:3]:
             for template in _DEFINITION_TEMPLATES:
@@ -197,7 +215,9 @@ class TrustExploitationModule(BaseModule):
         findings: list[Finding] = []
         flow_ids = [f.get("id") for f in surface.flows if isinstance(f, dict) and f.get("id")]
         if not flow_ids:
-            return findings
+            flow_ids = await _discover_flow_ids(platform)
+            if not flow_ids:
+                return findings
 
         for flow_id in flow_ids[:3]:
             for template in _INFERENCE_TEMPLATES:
@@ -303,7 +323,9 @@ class TrustExploitationModule(BaseModule):
         findings = []
         flow_ids = [f.get("id") for f in surface.flows if isinstance(f, dict) and f.get("id")]
         if not flow_ids:
-            return findings
+            flow_ids = await _discover_flow_ids(platform)
+            if not flow_ids:
+                return findings
 
         for flow_id in flow_ids[:2]:
             for template in _PUT_TEMPLATES:

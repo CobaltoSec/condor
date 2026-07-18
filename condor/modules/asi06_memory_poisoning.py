@@ -58,6 +58,14 @@ _VECTORSTORE_COLLECTION_ENDPOINTS = [
     ("/api/v2/tenants/default_tenant/databases/default_database/collections", "Chroma"),
 ]
 
+# Qdrant vector injection probe
+_QDRANT_COLLECTION_DETAIL = "/collections/{name}"
+_QDRANT_POINTS_UPSERT    = "/collections/{name}/points"
+_QDRANT_POINTS_DELETE    = "/collections/{name}/points/delete"
+
+# Chroma v2 vector injection probe (POST /add) and cleanup (POST /delete)
+_CHROMA_COLLECTION_BASE  = "/api/v2/tenants/default_tenant/databases/default_database/collections"
+
 # Letta IDOR — per-agent memory endpoint
 _LETTA_MEMORY_PROBE_IDS = [
     "00000000-0000-0000-0000-000000000001",
@@ -77,7 +85,12 @@ class MemoryPoisoningModule(BaseModule):
         findings.extend(await self._check_memory(surface, platform))
         findings.extend(await self._check_vector_inject(surface, platform))
         findings.extend(await self._check_dify_datasets(surface, platform))
-        findings.extend(await self._check_vectorstore_collections(platform))
+        coll_findings, qdrant_names, chroma_names = await self._check_vectorstore_collections(platform)
+        findings.extend(coll_findings)
+        for name in qdrant_names:
+            findings.extend(await self._check_qdrant_vector_injection(platform, name))
+        for name in chroma_names:
+            findings.extend(await self._check_chroma_vector_injection(platform, name))
         findings.extend(await self._check_letta_memory_idor(platform))
         return findings
 
@@ -255,9 +268,18 @@ class MemoryPoisoningModule(BaseModule):
                 pass
         return findings
 
-    async def _check_vectorstore_collections(self, platform: BasePlatform) -> list[Finding]:
-        """Qdrant/Chroma: list collections without authentication → HIGH."""
-        findings = []
+    async def _check_vectorstore_collections(
+        self, platform: BasePlatform
+    ) -> tuple[list[Finding], list[str], list[str]]:
+        """Qdrant/Chroma: list collections without authentication → HIGH.
+
+        Returns (findings, qdrant_collection_names, chroma_collection_names) so
+        that the caller can drive vector injection probes per discovered collection.
+        """
+        findings: list[Finding] = []
+        qdrant_names: list[str] = []
+        chroma_names: list[str] = []
+
         for endpoint, platform_name in _VECTORSTORE_COLLECTION_ENDPOINTS:
             try:
                 r = await platform.get(endpoint)
@@ -269,9 +291,17 @@ class MemoryPoisoningModule(BaseModule):
                         result = data.get("result", {})
                         collections = result.get("collections", []) if isinstance(result, dict) else []
                         count = len(collections)
-                    else:
+                        qdrant_names.extend(
+                            c.get("name") for c in collections
+                            if isinstance(c, dict) and c.get("name")
+                        )
+                    else:  # Chroma
                         items = data if isinstance(data, list) else []
                         count = len(items)
+                        chroma_names.extend(
+                            c.get("name") for c in items
+                            if isinstance(c, dict) and c.get("name")
+                        )
                 except Exception:
                     count = 0
                 findings.append(Finding(
@@ -299,6 +329,183 @@ class MemoryPoisoningModule(BaseModule):
                 ))
             except Exception:
                 pass
+        return findings, qdrant_names, chroma_names
+
+    async def _check_qdrant_vector_injection(
+        self, platform: BasePlatform, collection_name: str
+    ) -> list[Finding]:
+        """Probe unauthenticated write access on a discovered Qdrant collection.
+
+        Flow:
+          a) GET /collections/{name} → parse vector dimension
+          b) POST /collections/{name}/points → probe with zero vector
+          c) CLEANUP: POST /collections/{name}/points/delete (always, in finally)
+        """
+        findings: list[Finding] = []
+        detail_ep = _QDRANT_COLLECTION_DETAIL.format(name=collection_name)
+        inject_ep  = _QDRANT_POINTS_UPSERT.format(name=collection_name)
+        delete_ep  = _QDRANT_POINTS_DELETE.format(name=collection_name)
+
+        # Step a: determine vector dimension from collection detail
+        dimension = 4  # safe fallback — Qdrant rejects wrong-dim writes with 400
+        try:
+            r = await platform.get(detail_ep)
+            if r.status_code == 200 and _is_api_response(r):
+                try:
+                    data = r.json()
+                    vectors_cfg = data["result"]["config"]["params"]["vectors"]
+                    if isinstance(vectors_cfg, dict):
+                        if "size" in vectors_cfg:
+                            # Plain vector: {"size": 128, "distance": "Cosine"}
+                            dimension = int(vectors_cfg["size"])
+                        else:
+                            # Named vectors: {"text": {"size": 128, ...}, ...}
+                            first = next(iter(vectors_cfg.values()), {})
+                            if isinstance(first, dict) and "size" in first:
+                                dimension = int(first["size"])
+                except Exception:
+                    pass  # keep fallback dimension=4; probe will return 400 → HIGH
+        except Exception:
+            pass
+
+        # Step b: inject probe vector
+        probe_payload   = {
+            "points": [{"id": 9999999, "vector": [0.0] * dimension, "payload": {"condor": "probe"}}]
+        }
+        cleanup_payload = {"points": [9999999]}
+
+        try:
+            r = await platform.post(inject_ep, json=probe_payload)
+            if r.status_code in (200, 201) and _is_api_response(r):
+                findings.append(Finding(
+                    title=f"Qdrant vector injection without authentication: {inject_ep}",
+                    severity=Severity.CRITICAL,
+                    owasp_id=self.owasp_id,
+                    description=(
+                        f"The Qdrant endpoint {inject_ep} accepted a vector write without "
+                        f"authentication. An attacker can inject arbitrary vectors (including "
+                        f"adversarial embeddings) into the knowledge base, poisoning RAG retrieval."
+                    ),
+                    evidence=(
+                        f"POST {inject_ep} → {r.status_code}: probe id=9999999 "
+                        f"(dim={dimension}) accepted without auth"
+                    ),
+                    remediation=(
+                        "Enable Qdrant API key authentication (QDRANT__SERVICE__API_KEY). "
+                        "Purge the injected test vector (id=9999999) from the collection."
+                    ),
+                    confidence=95,
+                    cwe_id="CWE-306",
+                    endpoint=inject_ep,
+                ))
+            elif r.status_code in (400, 422) and _is_api_response(r):
+                findings.append(Finding(
+                    title=(
+                        f"Qdrant vectorstore writable without authentication "
+                        f"(dimension mismatch): {inject_ep}"
+                    ),
+                    severity=Severity.HIGH,
+                    owasp_id=self.owasp_id,
+                    description=(
+                        f"The Qdrant endpoint {inject_ep} is accessible without authentication "
+                        f"(returned {r.status_code} for the probe — likely a dimension mismatch). "
+                        f"A correctly formatted vector write could inject adversarial embeddings."
+                    ),
+                    evidence=(
+                        f"POST {inject_ep} → {r.status_code} without auth "
+                        f"(probe dim={dimension})"
+                    ),
+                    remediation=(
+                        "Enable Qdrant API key authentication (QDRANT__SERVICE__API_KEY). "
+                        "Restrict all write operations to authenticated clients."
+                    ),
+                    confidence=80,
+                    cwe_id="CWE-306",
+                    endpoint=inject_ep,
+                ))
+        except Exception:
+            pass
+        finally:
+            # Step c: cleanup — delete the injected probe point to avoid leaving artifacts
+            try:
+                await platform.post(delete_ep, json=cleanup_payload)
+            except Exception:
+                pass
+
+        return findings
+
+    async def _check_chroma_vector_injection(
+        self, platform: BasePlatform, collection_name: str
+    ) -> list[Finding]:
+        """Probe unauthenticated write access on a discovered Chroma collection.
+
+        Flow:
+          a) POST /api/v2/.../collections/{name}/add → inject probe embedding
+          b) CLEANUP: POST /api/v2/.../collections/{name}/delete (always, in finally)
+        """
+        findings: list[Finding] = []
+        add_ep    = f"{_CHROMA_COLLECTION_BASE}/{collection_name}/add"
+        delete_ep = f"{_CHROMA_COLLECTION_BASE}/{collection_name}/delete"
+
+        probe_payload   = {
+            "ids": ["condor-probe-99999"],
+            "embeddings": [[0.0] * 4],
+            "documents": ["condor probe"],
+        }
+        cleanup_payload = {"ids": ["condor-probe-99999"]}
+
+        try:
+            r = await platform.post(add_ep, json=probe_payload)
+            if r.status_code in (200, 201) and _is_api_response(r):
+                findings.append(Finding(
+                    title=f"Chroma vector injection without authentication: {add_ep}",
+                    severity=Severity.CRITICAL,
+                    owasp_id=self.owasp_id,
+                    description=(
+                        f"The Chroma endpoint {add_ep} accepted a document embedding write "
+                        f"without authentication. An attacker can inject adversarial embeddings "
+                        f"into the knowledge base, poisoning RAG retrieval results."
+                    ),
+                    evidence=(
+                        f"POST {add_ep} → {r.status_code}: probe id=condor-probe-99999 "
+                        f"accepted without auth"
+                    ),
+                    remediation=(
+                        "Enable Chroma authentication (CHROMA_SERVER_AUTHN_CREDENTIALS). "
+                        "Purge the injected test embedding (id=condor-probe-99999)."
+                    ),
+                    confidence=95,
+                    cwe_id="CWE-306",
+                    endpoint=add_ep,
+                ))
+            elif r.status_code in (400, 422) and _is_api_response(r):
+                findings.append(Finding(
+                    title=f"Chroma vectorstore writable without authentication: {add_ep}",
+                    severity=Severity.HIGH,
+                    owasp_id=self.owasp_id,
+                    description=(
+                        f"The Chroma endpoint {add_ep} is accessible without authentication "
+                        f"(returned {r.status_code} for the probe). A correctly formatted "
+                        f"embedding write could poison the knowledge base."
+                    ),
+                    evidence=f"POST {add_ep} → {r.status_code} without auth",
+                    remediation=(
+                        "Enable Chroma authentication (CHROMA_SERVER_AUTHN_CREDENTIALS). "
+                        "Restrict all write operations to authenticated clients."
+                    ),
+                    confidence=80,
+                    cwe_id="CWE-306",
+                    endpoint=add_ep,
+                ))
+        except Exception:
+            pass
+        finally:
+            # Cleanup — delete the injected probe document
+            try:
+                await platform.post(delete_ep, json=cleanup_payload)
+            except Exception:
+                pass
+
         return findings
 
     async def _check_letta_memory_idor(self, platform: BasePlatform) -> list[Finding]:

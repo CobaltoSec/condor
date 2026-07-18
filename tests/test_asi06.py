@@ -26,8 +26,14 @@ def _mock_platform(responses: dict | None = None) -> MagicMock:
             return responses[path]
         return resp_404
 
+    async def _delete(path, **kw):
+        if responses and path in responses:
+            return responses[path]
+        return resp_404
+
     plat.get = _get
     plat.post = _post
+    plat.delete = _delete
     return plat
 
 
@@ -223,3 +229,286 @@ async def test_adversarial_injection_partial():
     high = [f for f in findings if "unauthenticated vectorstore access" in f.title.lower()]
     assert len(high) == 1
     assert high[0].severity == Severity.HIGH
+
+
+# ---------------------------------------------------------------------------
+# Qdrant vector injection tests
+# ---------------------------------------------------------------------------
+
+_QDRANT_COLL_EP   = "/collections"
+_QDRANT_DETAIL_EP = "/collections/docs"
+_QDRANT_INJECT_EP = "/collections/docs/points"
+_QDRANT_DELETE_EP = "/collections/docs/points/delete"
+
+_QDRANT_COLL_RESP = {"result": {"collections": [{"name": "docs"}]}}
+_QDRANT_DETAIL_PLAIN = {
+    "result": {"config": {"params": {"vectors": {"size": 4, "distance": "Cosine"}}}}
+}
+_QDRANT_DETAIL_NAMED = {
+    "result": {"config": {"params": {"vectors": {"text": {"size": 8, "distance": "Cosine"}}}}}
+}
+
+
+def _qdrant_platform(inject_status: int, *, cleanup_tracker: dict | None = None):
+    """Build a mock platform for Qdrant injection tests.
+
+    GET /collections           → collection list with "docs"
+    GET /collections/docs      → plain vector detail (size=4)
+    POST /collections/docs/points → inject_status
+    POST /collections/docs/points/delete → 200 (cleanup; sets cleanup_tracker["called"])
+    """
+    async def _get(path, **kw):
+        if path == _QDRANT_COLL_EP:
+            return _json_resp(200, _QDRANT_COLL_RESP)
+        if path == _QDRANT_DETAIL_EP:
+            return _json_resp(200, _QDRANT_DETAIL_PLAIN)
+        return MagicMock(status_code=404, text="", content=b"")
+
+    async def _post(path, **kw):
+        if path == _QDRANT_INJECT_EP:
+            return _json_resp(inject_status, {"result": {"status": "ok"}})
+        if path == _QDRANT_DELETE_EP:
+            if cleanup_tracker is not None:
+                cleanup_tracker["called"] = True
+            return _json_resp(200, {})
+        return MagicMock(status_code=404, text="", content=b"")
+
+    plat = MagicMock()
+    plat.get = _get
+    plat.post = _post
+    return plat
+
+
+@pytest.mark.asyncio
+async def test_qdrant_injection_critical():
+    """Qdrant POST /points → 200: CRITICAL injection finding with dim from detail endpoint."""
+    mod = MemoryPoisoningModule()
+    plat = _qdrant_platform(inject_status=200)
+    findings = await mod.run(_surface(), plat)
+    inj = [f for f in findings if "Qdrant vector injection" in f.title]
+    assert len(inj) == 1
+    assert inj[0].severity == Severity.CRITICAL
+    assert inj[0].confidence == 95
+    assert inj[0].cwe_id == "CWE-306"
+    assert "dim=4" in inj[0].evidence
+
+
+@pytest.mark.asyncio
+async def test_qdrant_injection_critical_on_201():
+    """Qdrant POST /points → 201: also triggers CRITICAL."""
+    mod = MemoryPoisoningModule()
+    plat = _qdrant_platform(inject_status=201)
+    findings = await mod.run(_surface(), plat)
+    inj = [f for f in findings if "Qdrant vector injection" in f.title]
+    assert len(inj) == 1
+    assert inj[0].severity == Severity.CRITICAL
+
+
+@pytest.mark.asyncio
+async def test_qdrant_injection_high_on_400():
+    """Qdrant POST /points → 400 (dimension mismatch): HIGH finding (endpoint still accessible)."""
+    mod = MemoryPoisoningModule()
+    plat = _qdrant_platform(inject_status=400)
+    findings = await mod.run(_surface(), plat)
+    inj = [f for f in findings if "dimension mismatch" in f.title]
+    assert len(inj) == 1
+    assert inj[0].severity == Severity.HIGH
+    assert inj[0].confidence == 80
+
+
+@pytest.mark.asyncio
+async def test_qdrant_injection_high_on_422():
+    """Qdrant POST /points → 422: also HIGH."""
+    mod = MemoryPoisoningModule()
+    plat = _qdrant_platform(inject_status=422)
+    findings = await mod.run(_surface(), plat)
+    inj = [f for f in findings if "dimension mismatch" in f.title]
+    assert len(inj) == 1
+    assert inj[0].severity == Severity.HIGH
+
+
+@pytest.mark.asyncio
+async def test_qdrant_injection_cleanup_called_after_critical():
+    """Cleanup POST /points/delete is called after a successful (CRITICAL) injection."""
+    mod = MemoryPoisoningModule()
+    tracker = {"called": False}
+    plat = _qdrant_platform(inject_status=200, cleanup_tracker=tracker)
+    await mod.run(_surface(), plat)
+    assert tracker["called"], "Cleanup POST /points/delete was not called after CRITICAL probe"
+
+
+@pytest.mark.asyncio
+async def test_qdrant_injection_cleanup_called_after_high():
+    """Cleanup POST /points/delete is called even when probe returns 400 (HIGH)."""
+    mod = MemoryPoisoningModule()
+    tracker = {"called": False}
+    plat = _qdrant_platform(inject_status=400, cleanup_tracker=tracker)
+    await mod.run(_surface(), plat)
+    assert tracker["called"], "Cleanup POST /points/delete was not called after HIGH probe"
+
+
+@pytest.mark.asyncio
+async def test_qdrant_named_vectors_dimension_parsed():
+    """Named vector format: dimension is read from the first named vector's 'size' field."""
+    mod = MemoryPoisoningModule()
+
+    async def _get(path, **kw):
+        if path == _QDRANT_COLL_EP:
+            return _json_resp(200, _QDRANT_COLL_RESP)
+        if path == _QDRANT_DETAIL_EP:
+            return _json_resp(200, _QDRANT_DETAIL_NAMED)  # named vectors, size=8
+        return MagicMock(status_code=404, text="", content=b"")
+
+    async def _post(path, **kw):
+        if path == _QDRANT_INJECT_EP:
+            return _json_resp(200, {"result": "ok"})
+        return MagicMock(status_code=404, text="", content=b"")
+
+    plat = MagicMock()
+    plat.get = _get
+    plat.post = _post
+
+    findings = await mod.run(_surface(), plat)
+    inj = [f for f in findings if "Qdrant vector injection" in f.title]
+    assert len(inj) == 1
+    assert "dim=8" in inj[0].evidence
+
+
+@pytest.mark.asyncio
+async def test_qdrant_injection_no_finding_on_404():
+    """Qdrant POST /points → 404: no injection finding (endpoint not present)."""
+    mod = MemoryPoisoningModule()
+
+    async def _get(path, **kw):
+        if path == _QDRANT_COLL_EP:
+            return _json_resp(200, _QDRANT_COLL_RESP)
+        return MagicMock(status_code=404, text="", content=b"")
+
+    async def _post(path, **kw):
+        return MagicMock(status_code=404, text="", content=b"")
+
+    plat = MagicMock()
+    plat.get = _get
+    plat.post = _post
+
+    findings = await mod.run(_surface(), plat)
+    inj = [f for f in findings if "vector injection" in f.title.lower() and "Qdrant" in f.title]
+    assert inj == []
+
+
+# ---------------------------------------------------------------------------
+# Chroma vector injection tests
+# ---------------------------------------------------------------------------
+
+_CHROMA_BASE = "/api/v2/tenants/default_tenant/databases/default_database/collections"
+_CHROMA_COLL_EP  = _CHROMA_BASE
+_CHROMA_ADD_EP   = f"{_CHROMA_BASE}/col1/add"
+_CHROMA_DEL_EP   = f"{_CHROMA_BASE}/col1/delete"
+
+_CHROMA_COLL_RESP = [{"name": "col1"}]
+
+
+def _chroma_platform(add_status: int, *, cleanup_tracker: dict | None = None):
+    """Build a mock platform for Chroma injection tests.
+
+    GET /api/v2/.../collections          → [{"name": "col1"}]
+    POST /api/v2/.../collections/col1/add    → add_status
+    POST /api/v2/.../collections/col1/delete → 200 (cleanup)
+    """
+    async def _get(path, **kw):
+        if path == _CHROMA_COLL_EP:
+            return _json_resp(200, _CHROMA_COLL_RESP)
+        return MagicMock(status_code=404, text="", content=b"")
+
+    async def _post(path, **kw):
+        if path == _CHROMA_ADD_EP:
+            return _json_resp(add_status, {})
+        if path == _CHROMA_DEL_EP:
+            if cleanup_tracker is not None:
+                cleanup_tracker["called"] = True
+            return _json_resp(200, {})
+        return MagicMock(status_code=404, text="", content=b"")
+
+    plat = MagicMock()
+    plat.get = _get
+    plat.post = _post
+    return plat
+
+
+@pytest.mark.asyncio
+async def test_chroma_injection_critical():
+    """Chroma POST /add → 200: CRITICAL injection finding."""
+    mod = MemoryPoisoningModule()
+    plat = _chroma_platform(add_status=200)
+    findings = await mod.run(_surface(), plat)
+    inj = [f for f in findings if "Chroma vector injection" in f.title]
+    assert len(inj) == 1
+    assert inj[0].severity == Severity.CRITICAL
+    assert inj[0].confidence == 95
+    assert inj[0].cwe_id == "CWE-306"
+    assert "condor-probe-99999" in inj[0].evidence
+
+
+@pytest.mark.asyncio
+async def test_chroma_injection_critical_on_201():
+    """Chroma POST /add → 201: also CRITICAL."""
+    mod = MemoryPoisoningModule()
+    plat = _chroma_platform(add_status=201)
+    findings = await mod.run(_surface(), plat)
+    inj = [f for f in findings if "Chroma vector injection" in f.title]
+    assert len(inj) == 1
+    assert inj[0].severity == Severity.CRITICAL
+
+
+@pytest.mark.asyncio
+async def test_chroma_injection_high_on_400():
+    """Chroma POST /add → 400: HIGH finding (endpoint accessible without auth)."""
+    mod = MemoryPoisoningModule()
+    plat = _chroma_platform(add_status=400)
+    findings = await mod.run(_surface(), plat)
+    inj = [f for f in findings if "Chroma vectorstore writable" in f.title]
+    assert len(inj) == 1
+    assert inj[0].severity == Severity.HIGH
+    assert inj[0].confidence == 80
+
+
+@pytest.mark.asyncio
+async def test_chroma_injection_high_on_422():
+    """Chroma POST /add → 422: also HIGH."""
+    mod = MemoryPoisoningModule()
+    plat = _chroma_platform(add_status=422)
+    findings = await mod.run(_surface(), plat)
+    inj = [f for f in findings if "Chroma vectorstore writable" in f.title]
+    assert len(inj) == 1
+    assert inj[0].severity == Severity.HIGH
+
+
+@pytest.mark.asyncio
+async def test_chroma_injection_cleanup_called_after_critical():
+    """Cleanup POST /delete is called after successful Chroma injection (CRITICAL)."""
+    mod = MemoryPoisoningModule()
+    tracker = {"called": False}
+    plat = _chroma_platform(add_status=200, cleanup_tracker=tracker)
+    await mod.run(_surface(), plat)
+    assert tracker["called"], "Cleanup POST /delete was not called after CRITICAL probe"
+
+
+@pytest.mark.asyncio
+async def test_chroma_injection_cleanup_called_after_high():
+    """Cleanup POST /delete is called even when Chroma returns 422 (HIGH)."""
+    mod = MemoryPoisoningModule()
+    tracker = {"called": False}
+    plat = _chroma_platform(add_status=422, cleanup_tracker=tracker)
+    await mod.run(_surface(), plat)
+    assert tracker["called"], "Cleanup POST /delete was not called after HIGH probe"
+
+
+@pytest.mark.asyncio
+async def test_chroma_injection_no_finding_on_404():
+    """Chroma POST /add → 404: no injection finding."""
+    mod = MemoryPoisoningModule()
+    plat = _chroma_platform(add_status=404)
+    findings = await mod.run(_surface(), plat)
+    inj = [f for f in findings if "Chroma vector injection" in f.title
+           or "Chroma vectorstore writable" in f.title]
+    assert inj == []

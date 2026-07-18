@@ -174,3 +174,69 @@ async def test_origin_forgery_skipped_without_flows():
     findings = await mod.run(_surface(flows=[]), _mock_platform())
     forgery = [f for f in findings if "Origin Header Forgery" in f.title]
     assert forgery == []
+
+
+@pytest.mark.asyncio
+async def test_internal_prediction_active_discovery():
+    """surface.flows empty → discovery via GET /chatflows → internal prediction check continues."""
+    mod = InterAgentModule()
+    surface = _surface(flows=[])
+
+    discovery_resp = _json_resp(200, [{"id": "disc-1"}])
+    internal_resp = _json_resp(200, {"text": "agent response"})
+    resp_404 = MagicMock(status_code=404, text="", content=b"")
+
+    plat = MagicMock()
+
+    async def _get(path, **kw):
+        if path == "/api/v1/chatflows":
+            return discovery_resp
+        return resp_404
+
+    async def _post(path, **kw):
+        if path == "/api/v1/internal-prediction/disc-1":
+            return internal_resp
+        return resp_404
+
+    plat.get = _get
+    plat.post = _post
+
+    findings = await mod.run(surface, plat)
+    internal = [f for f in findings if "Internal agent prediction" in f.title]
+    assert len(internal) == 1
+
+
+@pytest.mark.asyncio
+async def test_origin_forgery_active_discovery():
+    """surface.flows empty → discovery via GET /chatflows → origin forgery check continues."""
+    mod = InterAgentModule()
+    surface = _surface(flows=[])
+    endpoint = "/api/v1/internal-prediction/disc-2"
+
+    discovery_resp = _json_resp(200, [{"id": "disc-2"}])
+    resp_403 = MagicMock(status_code=403, text="Forbidden", content=b"Forbidden")
+    resp_403.headers = {}
+    resp_200 = _json_resp(200, {"text": "agent response"})
+    resp_404 = MagicMock(status_code=404, text="", content=b"")
+
+    plat = MagicMock()
+
+    async def _get(path, **kw):
+        if path == "/api/v1/chatflows":
+            return discovery_resp
+        return resp_404
+
+    async def _post(path, **kw):
+        if path == endpoint:
+            hdrs = kw.get("headers", {})
+            if hdrs.get("X-Internal-Request") == "true":
+                return resp_200
+            return resp_403
+        return resp_404
+
+    plat.get = _get
+    plat.post = _post
+
+    findings = await mod.run(surface, plat)
+    forgery = [f for f in findings if "Origin Header Forgery" in f.title]
+    assert len(forgery) == 1

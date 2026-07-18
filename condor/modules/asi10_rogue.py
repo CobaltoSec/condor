@@ -288,9 +288,11 @@ class RogueAgentsModule(BaseModule):
         findings: list[Finding] = []
 
         # Qdrant: PUT /collections/{name}
+        _qdrant_probed = False
         try:
             r = await platform.put(_QDRANT_COLLECTION_ENDPOINT, json=_QDRANT_COLLECTION_PAYLOAD)
             if r.status_code not in (401, 403, 404) and _is_api_response(r):
+                _qdrant_probed = True
                 created = r.status_code in (200, 201)
                 try:
                     data = r.json()
@@ -319,31 +321,28 @@ class RogueAgentsModule(BaseModule):
                         cwe_id="CWE-306",
                         endpoint=_QDRANT_COLLECTION_ENDPOINT,
                     ))
-                    if created:
-                        try:
-                            await platform.delete(_QDRANT_COLLECTION_ENDPOINT)
-                        except Exception:
-                            pass
         except Exception:
             pass
+        finally:
+            if _qdrant_probed:
+                try:
+                    await platform.delete(_QDRANT_COLLECTION_ENDPOINT)
+                except Exception:
+                    pass
 
-        # Chroma: POST /api/v1/collections
-        created_id: str | None = None
+        # Chroma: POST /api/v2/.../collections
+        _chroma_probed = False
         try:
             r = await platform.post(_CHROMA_COLLECTION_ENDPOINT, json=_CHROMA_COLLECTION_PAYLOAD)
             if r.status_code not in (401, 403, 404) and _is_api_response(r):
+                _chroma_probed = True
                 if r.status_code in (200, 201):
-                    try:
-                        data = r.json()
-                        created_id = data.get("id") if isinstance(data, dict) else None
-                    except Exception:
-                        pass
                     findings.append(Finding(
                         title="Unauthenticated Chroma collection creation accepted",
                         severity=Severity.CRITICAL,
                         owasp_id=self.owasp_id,
                         description=(
-                            "Chroma's POST /api/v1/collections endpoint accepted a collection "
+                            "Chroma's POST /api/v2/collections endpoint accepted a collection "
                             "creation request without authentication. An attacker can create "
                             "collections and insert poisoned vectors into RAG pipelines."
                         ),
@@ -375,9 +374,9 @@ class RogueAgentsModule(BaseModule):
         except Exception:
             pass
         finally:
-            if created_id:
+            if _chroma_probed:
                 try:
-                    await platform.delete(f"{_CHROMA_COLLECTION_ENDPOINT}/{created_id}")
+                    await platform.delete(f"{_CHROMA_COLLECTION_ENDPOINT}/condor-probe")
                 except Exception:
                     pass
 

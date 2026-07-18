@@ -33,11 +33,28 @@ def _has_rate_limit_headers(r) -> bool:
         return False
 
 
+_HEALTH_PROBE_ENDPOINTS = [
+    "/health",
+    "/api/health",
+    "/api/v1/health",
+    "/api/v1/ping",
+]
+
 _INFERENCE_PROBE_ENDPOINTS = [
+    "/health",
+    "/api/health",
+    "/api/v1/health",
+    "/api/v1/ping",
     "/api/v1/prediction/condor-probe",
     "/api/v1/predict",
     "/v1/chat-messages",
     "/api/runs",
+]
+
+# Burst probe uses POST — health endpoints respond 405 to POST (false positive).
+# Exclude them from the burst list; they are covered by _check_rate_limits (GET).
+_BURST_PROBE_ENDPOINTS = [
+    ep for ep in _INFERENCE_PROBE_ENDPOINTS if ep not in set(_HEALTH_PROBE_ENDPOINTS)
 ]
 
 _QUEUE_ENDPOINTS = [
@@ -125,7 +142,7 @@ class CascadingFailuresModule(BaseModule):
         flow_ids = [f.get("id") for f in surface.flows if isinstance(f, dict) and f.get("id")]
         if flow_ids:
             endpoints.append(f"/api/v1/prediction/{flow_ids[0]}")
-        endpoints.extend(_INFERENCE_PROBE_ENDPOINTS)
+        endpoints.extend(_BURST_PROBE_ENDPOINTS)
 
         for endpoint in endpoints:
             try:

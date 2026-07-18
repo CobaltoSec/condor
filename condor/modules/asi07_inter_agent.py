@@ -57,6 +57,22 @@ _DIFY_WORKFLOW_PAYLOAD = {
 }
 
 
+async def _discover_flow_ids(platform: BasePlatform) -> list[str]:
+    """Active discovery: probe known list endpoints when surface.flows is empty."""
+    for endpoint in ("/api/v1/chatflows", "/api/v1/flows", "/api/v1/agents"):
+        try:
+            r = await platform.get(endpoint)
+            if r.status_code == 200 and _is_api_response(r):
+                data = r.json()
+                if isinstance(data, list) and data:
+                    ids = [item.get("id") for item in data if isinstance(item, dict) and item.get("id")]
+                    if ids:
+                        return ids
+        except Exception:
+            pass
+    return []
+
+
 class InterAgentModule(BaseModule):
     name        = "inter-agent"
     owasp_id    = OWASPCategory.ASI07
@@ -114,7 +130,9 @@ class InterAgentModule(BaseModule):
         findings = []
         flow_ids = [f.get("id") for f in surface.flows if isinstance(f, dict) and f.get("id")]
         if not flow_ids:
-            return findings
+            flow_ids = await _discover_flow_ids(platform)
+            if not flow_ids:
+                return findings
         for flow_id in flow_ids[:3]:
             endpoint = _FLOWISE_INTERNAL_PREDICTION.format(flow_id=flow_id)
             try:
@@ -149,7 +167,9 @@ class InterAgentModule(BaseModule):
         findings = []
         flow_ids = [f.get("id") for f in surface.flows if isinstance(f, dict) and f.get("id")]
         if not flow_ids:
-            return findings
+            flow_ids = await _discover_flow_ids(platform)
+            if not flow_ids:
+                return findings
         for flow_id in flow_ids[:2]:
             endpoint = _FLOWISE_INTERNAL_PREDICTION.format(flow_id=flow_id)
             try:
