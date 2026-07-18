@@ -7,7 +7,7 @@
 [![Python 3.11+](https://img.shields.io/pypi/pyversions/cobaltosec-condor)](https://pypi.org/project/cobaltosec-condor/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Current release: <!-- CONDOR_VERSION_START -->v1.0.0<!-- CONDOR_VERSION_END -->
+Current release: <!-- CONDOR_VERSION_START -->1.0.0<!-- CONDOR_VERSION_END -->
 
 Condor scans agentic AI platforms for security vulnerabilities mapped to the [OWASP Top 10 for Agentic Applications](https://owasp.org/www-project-top-10-for-agentic-applications/). It understands the semantics of each platform — enumerating chatflows, tools, vectorstores, and agent surfaces — then runs 10 specialized modules in parallel.
 

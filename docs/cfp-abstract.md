@@ -1,10 +1,25 @@
 # CFP Abstract — Condor: Agentic AI Security Scanner
 
-**Título:** Condor: Escaneando la superficie de ataque de plataformas de IA agéntica
+**Título:** La alfombra de bienvenida de JADEPUFFER: auditando infraestructura de IA agéntica expuesta
+**Título (inglés):** JADEPUFFER's Welcome Mat: Systematically Auditing Exposed Agentic AI Infrastructure
 
 **Track sugerido:** Offensive Security / AppSec / AI Security
 **Formato:** Talk 30–45 min
-**Targets:** Ekoparty (Buenos Aires, octubre 2026) · DragonJAR · No cON Name
+**Targets:** Ekoparty 2026 (Buenos Aires, deadline 14 agosto) · DragonJAR · 8.8 Chile
+
+---
+
+## Estado de la submission
+
+- [ ] Dify case study (CS-03) — pendiente, ~1 semana
+- [ ] Segunda run Petrel → feed-corvus para datos de exposición internet
+- [ ] Actualizar con números finales antes del 7 agosto
+
+---
+
+## Hook
+
+En julio 2026, el ransomware **JADEPUFFER** entró por CVE-2025-3248 — ejecución de código remoto en Langflow sin autenticación (CVSS 9.8, CISA KEV). Los servidores afectados estaban expuestos en internet, sin parchear, y auditables en menos de 60 segundos con una herramienta open source. Esa herramienta existía antes de que JADEPUFFER llegara. Tenía descargas. La pregunta no es si alguien la usó contra esos servidores — es si el defensor llegó primero.
 
 ---
 
