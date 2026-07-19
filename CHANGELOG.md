@@ -1,5 +1,25 @@
 # Changelog
 
+## [RT-CONDOR-CFP-SUBMIT] — 2026-07-18 — CFP ABSTRACT + SLIDES EKOPARTY 2026
+
+- **cfp-abstract.md — 3 gaps cerrados**: (1) claim de escala con datos reales — 12k+ instancias Flowise (CVE-2025-59528 CVSS 10.0), ~7k Langflow (JADEPUFFER/CVE-2025-3248), 1.342 registros cifrados, 361 IPs maliciosas activas; (2) GHSA-95xp-fhhm-xfj2 (n8n owner takeover CWE-306) + GHSA-p67m-xf4h-2r78 (Letta RCE CWE-306) con descripción técnica exacta; (3) diferenciador vs Nuclei — ejemplo concreto de vector dimensions (`[0.0]*4` → 400 vs Condor lee dim → CRITICAL)
+- **cfp-abstract.md — polish general**: lista de plataformas actualizada (n8n/Dify/LangGraph), 16 plataformas / 431 tests, speaker bio con GHSAs, email corregido a `nicolas@cobalto-sec.tech`, checklist interno de submission removido
+- **docs/slides.html — 15 slides HTML**: 1280×720 fijo con scale transform; navegación teclado (←→ Space Home End) + botones circulares + fullscreen; print support para PDF. Estructura: Title (stats row 16/431/10/2) → Agenda → JADEPUFFER → Escala → Superficie → ASI Top 10 → Condor → Demo setup → Demo results → GHSA n8n → GHSA Letta → Nuclei vs → Plataformas → Integración → Takeaway
+- **Pending manual (Nico)**: submit a Sessionize antes del 14 agosto — URL: sessionize.com/ekoparty-security-conference-2026-buenos-aires
+
+## [RT-CONDOR-CS02] — 2026-07-18 — N8N / DIFY / LANGGRAPH PROBES + GHSA N8N
+
+- **ASI03 — n8n owner setup probe**: `_check_n8n_owner_setup()` — `GET /rest/settings` detecta `showSetupOnFirstLoad=true` → CRITICAL CWE-306 (race window: atacante puede crear `global:owner` antes que el admin en fresh install). Non-invasive — no hace POST. Confirmado en n8n v2.30.7.
+- **ASI03 — Dify credential exposure**: `/console/api/workspaces/current/model-providers` (API keys OpenAI/Anthropic/Azure) + `/console/api/workspaces/current/apikey` (workspace API key) → ambas CRITICAL en `_SENSITIVE`
+- **ASI03 — LangGraph surface**: `/assistants`, `/threads`, `/runs`, `/store/namespaces`, `/crons` → HIGH en `_SENSITIVE`
+- **ASI03 — n8n IDOR**: `/api/v1/credentials/1,2,3` → MEDIUM CWE-639 en `_IDOR_ENDPOINTS`
+- **ASI10 — n8n + LangGraph creation**: `POST /api/v1/workflows` (n8n) + `POST /assistants` (LangGraph) agregados a `_CREATION_ENDPOINTS`
+- **ASI10 — LangGraph cleanup fix**: `data.get("id") or data.get("assistant_id")` — LangGraph retorna `assistant_id` en lugar de `id` en la respuesta de creación
+- **E2E n8n**: `tests/e2e/docker-compose.yml` + scan confirmado — 1 CRITICAL detectado en fresh n8n v2.30.7
+- **GHSA submiteado**: GHSA-95xp-fhhm-xfj2 — n8n unauthenticated owner account creation (CWE-306, CRITICAL); maintainer notificado, CVE pending MITRE
+- **Fix infra**: `pip install -e .` — venv estaba con copia fija en site-packages; condor.exe usaba código desactualizado
+- +16 tests (415 → **431/431 passing**) — 8 en `test_asi03.py` (Dify/n8n IDOR/LangGraph), 4 en `test_asi10.py` (n8n workflow/LangGraph assistant), 4 en `test_asi03_n8n_setup.py` (nuevo archivo)
+
 ## [RT-CONDOR-V11] — 2026-07-18 — MODULE FIXES + NEW PROBES
 
 - **ASI03 — Langflow default creds + n8n endpoints**: `_check_langflow_auto_login()` — prueba `langflow/langflow` y `admin/admin` en `/api/v1/login` + `/api/v1/auth/login`; 200 + token (len > 20) → CRITICAL CWE-1392; 422 ignorado (validation error ≠ auth check). n8n: `/api/v1/executions` (CRITICAL) + `/rest/owner` (HIGH) agregados a `_SENSITIVE`
