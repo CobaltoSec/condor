@@ -329,3 +329,112 @@ async def test_n8n_owner_exposed():
     assert len(owner_findings) == 1
     assert owner_findings[0].severity == Severity.HIGH
     assert owner_findings[0].owasp_id == OWASPCategory.ASI03
+
+
+@pytest.mark.asyncio
+async def test_n8n_credentials_idor_detected():
+    """GET /api/v1/credentials/1 returns 200 → IDOR MEDIUM finding for n8n credential."""
+    mod = PrivilegeAbuseModule()
+    resp = _resp(200, {"id": "1", "name": "openai", "credentialType": "openAiApi"})
+    get_resp = {"/api/v1/credentials/1": resp}
+    findings = await mod.run(_surface(), _mock_platform(get_responses=get_resp))
+    idor = [f for f in findings if "IDOR" in f.title]
+    assert len(idor) == 1
+    assert idor[0].severity == Severity.MEDIUM
+    assert idor[0].cwe_id == "CWE-639"
+    assert "/api/v1/credentials/1" in idor[0].evidence
+
+
+# ── Dify credential exposure ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_dify_model_providers_exposed():
+    """GET /console/api/workspaces/current/model-providers → CRITICAL finding."""
+    mod = PrivilegeAbuseModule()
+    resp = _resp(200, [{"provider": "openai", "token": "****"}])
+    get_resp = {"/console/api/workspaces/current/model-providers": resp}
+    findings = await mod.run(_surface(), _mock_platform(get_responses=get_resp))
+    dify = [f for f in findings if "model-providers" in f.title]
+    assert len(dify) == 1
+    assert dify[0].severity == Severity.CRITICAL
+    assert dify[0].owasp_id == OWASPCategory.ASI03
+
+
+@pytest.mark.asyncio
+async def test_dify_apikey_exposed():
+    """GET /console/api/workspaces/current/apikey → CRITICAL finding."""
+    mod = PrivilegeAbuseModule()
+    resp = _resp(200, {"api_key": "app-abc123"})
+    get_resp = {"/console/api/workspaces/current/apikey": resp}
+    findings = await mod.run(_surface(), _mock_platform(get_responses=get_resp))
+    dify = [f for f in findings if "apikey" in f.title]
+    assert len(dify) == 1
+    assert dify[0].severity == Severity.CRITICAL
+    assert dify[0].owasp_id == OWASPCategory.ASI03
+
+
+@pytest.mark.asyncio
+async def test_dify_endpoints_html_filtered():
+    """HTML response for Dify endpoints → no finding (SPA catch-all)."""
+    mod = PrivilegeAbuseModule()
+    html_resp = _resp(200, content_type="text/html")
+    html_resp.text = "<html></html>"
+    get_resp = {
+        "/console/api/workspaces/current/model-providers": html_resp,
+        "/console/api/workspaces/current/apikey": html_resp,
+    }
+    findings = await mod.run(_surface(), _mock_platform(get_responses=get_resp))
+    assert not any("model-providers" in f.title or "apikey" in f.title for f in findings)
+
+
+# ── LangGraph sensitive endpoints ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_langgraph_assistants_exposed():
+    """GET /assistants returns 200 → HIGH finding for LangGraph assistant registry."""
+    mod = PrivilegeAbuseModule()
+    resp = _resp(200, [{"assistant_id": "a1", "name": "research-agent"}])
+    get_resp = {"/assistants": resp}
+    findings = await mod.run(_surface(), _mock_platform(get_responses=get_resp))
+    lg = [f for f in findings if "/assistants" in f.title]
+    assert len(lg) == 1
+    assert lg[0].severity == Severity.HIGH
+    assert lg[0].owasp_id == OWASPCategory.ASI03
+
+
+@pytest.mark.asyncio
+async def test_langgraph_crons_exposed():
+    """GET /crons returns 200 → HIGH finding for LangGraph scheduled tasks."""
+    mod = PrivilegeAbuseModule()
+    resp = _resp(200, [{"cron_id": "c1", "schedule": "0 * * * *"}])
+    get_resp = {"/crons": resp}
+    findings = await mod.run(_surface(), _mock_platform(get_responses=get_resp))
+    lg = [f for f in findings if "/crons" in f.title]
+    assert len(lg) == 1
+    assert lg[0].severity == Severity.HIGH
+
+
+@pytest.mark.asyncio
+async def test_langgraph_store_namespaces_exposed():
+    """GET /store/namespaces returns 200 → HIGH finding for LangGraph persistent store."""
+    mod = PrivilegeAbuseModule()
+    resp = _resp(200, ["namespace-1", "user-data"])
+    get_resp = {"/store/namespaces": resp}
+    findings = await mod.run(_surface(), _mock_platform(get_responses=get_resp))
+    lg = [f for f in findings if "/store/namespaces" in f.title]
+    assert len(lg) == 1
+    assert lg[0].severity == Severity.HIGH
+
+
+@pytest.mark.asyncio
+async def test_langgraph_threads_exposed():
+    """GET /threads returns 200 → HIGH finding for LangGraph thread history."""
+    mod = PrivilegeAbuseModule()
+    resp = _resp(200, [{"thread_id": "t1", "created_at": "2024-01-01"}])
+    get_resp = {"/threads": resp}
+    findings = await mod.run(_surface(), _mock_platform(get_responses=get_resp))
+    lg = [f for f in findings if "/threads" in f.title]
+    assert len(lg) == 1
+    assert lg[0].severity == Severity.HIGH

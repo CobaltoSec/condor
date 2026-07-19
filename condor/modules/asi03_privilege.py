@@ -36,6 +36,15 @@ _SENSITIVE = [
     # n8n
     ("/api/v1/executions",   Severity.CRITICAL, "execution history of all workflows"),
     ("/rest/owner",          Severity.HIGH,     "n8n instance owner/admin information"),
+    # Dify — credential exposure
+    ("/console/api/workspaces/current/model-providers", Severity.CRITICAL, "LLM provider API keys (OpenAI/Anthropic/Azure)"),
+    ("/console/api/workspaces/current/apikey",          Severity.CRITICAL, "Dify workspace API key"),
+    # LangGraph
+    ("/assistants",       Severity.HIGH, "LangGraph assistant registry"),
+    ("/threads",          Severity.HIGH, "LangGraph thread/conversation history"),
+    ("/runs",             Severity.HIGH, "LangGraph run execution history"),
+    ("/store/namespaces", Severity.HIGH, "LangGraph persistent store namespaces"),
+    ("/crons",            Severity.HIGH, "LangGraph scheduled task configuration"),
 ]
 
 # Endpoints that allow unauthenticated writes (worse than reads)
@@ -64,6 +73,10 @@ _IDOR_ENDPOINTS = [
     "/api/v1/chatflows/4",
     "/api/v1/chatflows/5",
     "/api/v1/chatflows/00000000-0000-0000-0000-000000000001",
+    # n8n credentials IDOR (numeric IDs)
+    "/api/v1/credentials/1",
+    "/api/v1/credentials/2",
+    "/api/v1/credentials/3",
 ]
 
 _MASS_ASSIGN_FIELDS = {
@@ -189,6 +202,50 @@ class PrivilegeAbuseModule(BaseModule):
                     pass
         return []
 
+    async def _check_n8n_owner_setup(self, platform: BasePlatform) -> list[Finding]:
+        """n8n: /rest/owner/setup open without auth on fresh instances → account takeover."""
+        try:
+            r = await platform.get("/rest/settings")
+            if r.status_code != 200 or not _is_api_response(r):
+                return []
+            try:
+                body = r.json()
+                settings = body.get("data", body)
+                if not settings.get("userManagement", {}).get("showSetupOnFirstLoad"):
+                    return []
+            except Exception:
+                return []
+            return [Finding(
+                title="n8n: Unauthenticated owner account creation (setup window exposed)",
+                severity=Severity.CRITICAL,
+                owasp_id=self.owasp_id,
+                description=(
+                    "n8n's POST /rest/owner/setup endpoint accepts unauthenticated requests "
+                    "when the instance has not yet been configured (showSetupOnFirstLoad=true). "
+                    "An attacker can create a global:owner account with full administrative "
+                    "privileges before the legitimate administrator completes setup, achieving "
+                    "complete instance takeover including access to all credentials, workflows, "
+                    "and execution history."
+                ),
+                evidence=(
+                    "GET /rest/settings → 200 with userManagement.showSetupOnFirstLoad=true. "
+                    "POST /rest/owner/setup without authentication creates a global:owner "
+                    "account with all scopes (credential:*, workflow:*, user:*, externalSecret:*, ...)."
+                ),
+                remediation=(
+                    "Complete n8n owner setup immediately after deployment. "
+                    "Never expose n8n to the public internet before configuring the owner account. "
+                    "Use firewall rules or reverse proxy auth to protect /rest/owner/setup "
+                    "during the initial setup window."
+                ),
+                confidence=95,
+                cwe_id="CWE-306",
+                endpoint="/rest/owner/setup",
+            )]
+        except Exception:
+            pass
+        return []
+
     async def run(self, surface: AgentSurface, platform: BasePlatform) -> list[Finding]:
         findings: list[Finding] = []
 
@@ -291,4 +348,5 @@ class PrivilegeAbuseModule(BaseModule):
         findings.extend(await self._check_idor(platform))
         findings.extend(await self._check_header_bypass(platform))
         findings.extend(await self._check_langflow_auto_login(platform))
+        findings.extend(await self._check_n8n_owner_setup(platform))
         return findings

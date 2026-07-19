@@ -386,3 +386,77 @@ async def test_chroma_cleanup_called_on_409():
     assert len(chroma) == 1
     assert chroma[0].severity == Severity.HIGH
     assert f"{_CHROMA_V2_BASE}/condor-probe" in plat._delete_calls
+
+
+# ── n8n workflow creation ─────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_n8n_workflow_creation_critical():
+    """POST /api/v1/workflows → 201 → CRITICAL rogue workflow finding."""
+    mod = RogueAgentsModule()
+    resp = _json_resp(201, {"id": "wf-123", "name": "condor-probe"})
+    platform = _mock_platform({"/api/v1/workflows": resp})
+    findings = await mod.run(_surface(), platform)
+    cr = [f for f in findings if "creation accepted" in f.title and "/api/v1/workflows" in f.title]
+    assert len(cr) == 1
+    assert cr[0].severity == Severity.CRITICAL
+    assert cr[0].confidence == 90
+
+
+@pytest.mark.asyncio
+async def test_n8n_workflow_creation_endpoint_open_high():
+    """POST /api/v1/workflows → 400 → HIGH (endpoint accessible without auth)."""
+    mod = RogueAgentsModule()
+    resp = _json_resp(400, {"error": "invalid payload"})
+    platform = _mock_platform({"/api/v1/workflows": resp})
+    findings = await mod.run(_surface(), platform)
+    cr = [f for f in findings if "accessible without auth" in f.title and "/api/v1/workflows" in f.title]
+    assert len(cr) == 1
+    assert cr[0].severity == Severity.HIGH
+
+
+# ── LangGraph assistant creation ──────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_langgraph_assistant_creation_critical():
+    """POST /assistants → 201 → CRITICAL rogue assistant finding."""
+    mod = RogueAgentsModule()
+    resp = _json_resp(201, {"assistant_id": "asst-xyz", "name": "condor-probe"})
+    platform = _mock_platform({"/assistants": resp})
+    findings = await mod.run(_surface(), platform)
+    cr = [f for f in findings if "creation accepted" in f.title and "/assistants" in f.title]
+    assert len(cr) == 1
+    assert cr[0].severity == Severity.CRITICAL
+
+
+@pytest.mark.asyncio
+async def test_langgraph_assistant_cleanup_uses_assistant_id():
+    """POST /assistants → 201 (assistant_id key) → DELETE /assistants/asst-xyz attempted."""
+    mod = RogueAgentsModule()
+    delete_calls: list[str] = []
+
+    async def _post(path, **kw):
+        if path == "/assistants":
+            return _json_resp(201, {"assistant_id": "asst-xyz", "name": "condor-probe"})
+        return MagicMock(status_code=404, text="", content=b"", headers={})
+
+    async def _get(path, **kw):
+        return MagicMock(status_code=404, text="", content=b"", headers={})
+
+    async def _delete(path, **kw):
+        delete_calls.append(path)
+        return MagicMock(status_code=200)
+
+    async def _put(path, **kw):
+        return MagicMock(status_code=404, text="", content=b"", headers={})
+
+    plat = MagicMock()
+    plat.post = _post
+    plat.get = _get
+    plat.delete = _delete
+    plat.put = _put
+
+    await mod._check_unauthenticated_creation(_surface(), plat)
+    assert "/assistants/asst-xyz" in delete_calls

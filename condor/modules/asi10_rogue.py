@@ -37,6 +37,8 @@ _CREATION_ENDPOINTS = [
     "/api/v1/flows",
     "/console/api/apps",
     "/api/agents",
+    "/api/v1/workflows",  # n8n
+    "/assistants",        # LangGraph
 ]
 
 _TOOL_ENDPOINTS = [
@@ -132,7 +134,7 @@ class RogueAgentsModule(BaseModule):
                 if r.status_code in (200, 201) and _is_api_response(r):
                     try:
                         data = r.json()
-                        created_id = data.get("id") if isinstance(data, dict) else None
+                        created_id = (data.get("id") or data.get("assistant_id")) if isinstance(data, dict) else None
                     except Exception:
                         pass
                     findings.append(Finding(

@@ -79,6 +79,29 @@ services:
       retries: 18
       start_period: 40s
 
+  # ── CS02 platforms ─────────────────────────────────────────────────────────
+
+  n8n:
+    image: n8nio/n8n:latest
+    ports:
+      - "5678:5678"
+    environment:
+      # Disable all auth layers — simulates bare install without security hardening
+      N8N_BASIC_AUTH_ACTIVE: "false"
+      N8N_JWT_AUTH_ACTIVE: "false"
+      N8N_USER_MANAGEMENT_DISABLED: "true"
+      N8N_ENCRYPTION_KEY: "condor-e2e-insecure-key-32bytes!"
+      N8N_SECURE_COOKIE: "false"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      DB_TYPE: "sqlite"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5678/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 20s
+
   # ── CS01 platforms ─────────────────────────────────────────────────────────
 
   flowise:
