@@ -1,5 +1,14 @@
 # Changelog
 
+## [RT-CONDOR-CS03] — 2026-07-21 — DIFY SANDBOX RCE PROBE + CORS REFLECTED ORIGIN
+
+- **ASI05 — Dify sandbox probe**: `_check_dify_sandbox()` — detecta `port 8194` expuesto al host (HIGH, CWE-306) y ejecuta Python con keys por defecto (`condor-sandbox-probe` marker, seccomp-safe); CRITICAL si exec confirmado. Probe de health en `/health` → `"ok"`, exec en `POST /v1/sandbox/run` con `X-Api-Key`. Default key `dify-sandbox` aceptada en fresh install.
+- **ASI03 — CORS reflected origin**: `_check_cors()` extendido para detectar el patrón `Access-Control-Allow-Origin: <reflected>` + `Access-Control-Allow-Credentials: true` (HIGH, CWE-942) — browsers permiten cross-origin credenciado a origins reflejados (diferente a `*` + credentials que bloquean). Probe envía `Origin: https://condor-probe.evil`.
+- **E2E Dify**: `tests/e2e/docker-compose.yml` — 4 servicios (dify-sandbox + dify-api + dify-db + dify-redis). Scan real: 1 CRITICAL + 2 HIGH + 1 MEDIUM en 2.2 segundos.
+- **Case study**: `docs/case-studies/cs03-dify-latest.md` — findings reales, análisis de arquitectura sandbox, tabla seccomp (qué puede/no puede el código ejecutado), comparativa 3 plataformas.
+- **CFP abstract**: "3 plataformas principales auditadas" con findings reales de Dify; 431 → **474 tests** mencionados.
+- +6 tests (468 → **474/474 passing**)
+
 ## [1.1.0] — 2026-07-21 — CORS Detection + Compliance Report
 
 - **CORS misconfiguration detection (ASI03)**: nuevo probe `_check_cors()` — OPTIONS a endpoints sensibles; `Access-Control-Allow-Origin: *` → MEDIUM (CWE-942); wildcard + `Access-Control-Allow-Credentials: true` → HIGH
