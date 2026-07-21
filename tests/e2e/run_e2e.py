@@ -96,6 +96,19 @@ TARGETS = [
             "ASI10 HIGH    — POST /api/v1/tools returns 405 (route mismatch or auth-enforced)",
         ],
     },
+    # ── CS03 platforms ──────────────────────────────────────────────────────
+    {
+        "name": "dify",
+        "platform": "dify",
+        "url": "http://localhost:5001",
+        "health_url": "http://localhost:5001/health",
+        "health_timeout": 180,  # migrations run on first boot (60-90s)
+        # ASI03: CORS wildcard (CONSOLE_CORS_ALLOW_ORIGINS=*)
+        # ASI05: sandbox port 8194 exposed → HIGH + CRITICAL (default key)
+        # ASI09: version disclosure via /console/api/version
+        "expected_owasp": ["ASI03", "ASI05", "ASI09"],
+        "gaps": [],
+    },
     # ── CS01 platforms ──────────────────────────────────────────────────────
     {
         "name": "flowise",

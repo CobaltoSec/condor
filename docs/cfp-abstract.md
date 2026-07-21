@@ -21,7 +21,7 @@ La adopción de plataformas de IA agéntica —Flowise, Langflow, Dify, n8n, Lan
 
 El resultado es cuantificable: **más de 12,000 instancias Flowise** y **~7,000 instancias Langflow** estaban expuestas en internet cuando sus respectivos CVEs críticos fueron explotados activamente (CVE-2025-59528 CVSS 10.0; CVE-2025-3248 CISA KEV). El ransomware JADEPUFFER cifró 1,342 registros y GreyNoise observó 361 IPs maliciosas escaneando activamente instancias Langflow. Los servidores afectados estaban en su configuración por defecto — sin credenciales, sin hardening, auditables en segundos.
 
-En esta charla presentamos **Condor**, un scanner de seguridad open-source diseñado específicamente para la superficie de ataque de sistemas agénticos, mapeado sobre el estándar **OWASP ASI Top 10** (Agentic Security Initiative). Condor soporta **16 plataformas** con **431 tests** y ejecuta 10 módulos ASI especializados en paralelo — cubriendo desde inyección de prompt hasta RAG poisoning, SSRF via tools, escalamiento de privilegios y rogue agent creation.
+En esta charla presentamos **Condor**, un scanner de seguridad open-source diseñado específicamente para la superficie de ataque de sistemas agénticos, mapeado sobre el estándar **OWASP ASI Top 10** (Agentic Security Initiative). Condor soporta **16 plataformas** con **474 tests** y ejecuta 10 módulos ASI especializados en paralelo — cubriendo desde inyección de prompt hasta RAG poisoning, SSRF via tools, escalamiento de privilegios y rogue agent creation.
 
 **Demo en vivo:** contra una instancia de Flowise 1.8.2 (default install, sin credenciales), Condor detecta en 3.0 segundos:
 
@@ -32,7 +32,12 @@ En esta charla presentamos **Condor**, un scanner de seguridad open-source dise�
 
 En instancias con chatflows activos se suman ASI01 (prompt injection sobre flows en vivo) y ASI02 (SSRF/path traversal vía tools configuradas).
 
-El mismo patrón se repite en **Langflow**, **Dify**, **n8n**, **Qdrant**, **Chroma**, **Letta** y otras plataformas agénticas populares — todas con vulnerabilidades detectables en segundos en su configuración por defecto.
+El mismo patrón se repite en las otras dos plataformas principales auditadas:
+
+- **Dify latest**: el sandbox de ejecución de código (`port 8194`) está expuesto directamente en el `docker-compose.yaml` oficial. Un atacante con acceso de red ejecuta Python arbitrario sin ningún token Dify — **1 CRITICAL, 2 HIGH** en 2.2 segundos. Además, el endpoint `/console/api/workspaces/current/apikey` tiene CORS con origen reflejado + `Access-Control-Allow-Credentials: true` (CWE-942), permitiendo exfiltración de API keys vía cross-origin request autenticado.
+- **Langflow 1.10.2**: superficie reducida, 1 finding LOW (version disclosure en `/openapi.json`). La arquitectura de auth en 1.x es correcta; las versiones < 1.0.18 tenían RCE (CVE-2024-8673, CVSS 9.8).
+
+Y además en **n8n**, **Qdrant**, **Chroma**, **Letta** y otras plataformas agénticas populares — todas con vulnerabilidades detectables en segundos en su configuración por defecto.
 
 **Vulnerabilidades descubiertas con Condor durante el desarrollo:**
 
@@ -55,7 +60,7 @@ The rapid adoption of agentic AI platforms —Flowise, Langflow, Dify, n8n, Lang
 
 The scale is measurable: **over 12,000 Flowise instances** and **~7,000 Langflow instances** were exposed on the internet when their respective critical CVEs were actively exploited (CVE-2025-59528 CVSS 10.0; CVE-2025-3248 CISA KEV). The JADEPUFFER ransomware encrypted 1,342 records and GreyNoise tracked 361 malicious IPs actively scanning Langflow instances. All affected servers were running default configurations — no credentials, no hardening, auditable in seconds.
 
-We present **Condor**, an open-source security scanner purpose-built for agentic system attack surfaces, mapped to the **OWASP ASI Top 10** (Agentic Security Initiative). Condor covers **16 platforms** with **431 tests**, running 10 specialized ASI modules in parallel — from prompt injection and RAG poisoning to SSRF via tools, privilege escalation, and rogue agent creation.
+We present **Condor**, an open-source security scanner purpose-built for agentic system attack surfaces, mapped to the **OWASP ASI Top 10** (Agentic Security Initiative). Condor covers **16 platforms** with **474 tests**, running 10 specialized ASI modules in parallel — from prompt injection and RAG poisoning to SSRF via tools, privilege escalation, and rogue agent creation.
 
 **Live demo:** against a Flowise 1.8.2 default install (no credentials), Condor detects in 3.0 seconds:
 
@@ -66,7 +71,12 @@ We present **Condor**, an open-source security scanner purpose-built for agentic
 
 On configured instances (active chatflows + LLMs): additional ASI01 (prompt injection on live flows) and ASI02 (SSRF/path traversal via configured tools).
 
-The pattern is not unique to Flowise: **Langflow**, **Dify**, **n8n**, **Qdrant**, **Chroma**, **Letta**, and other popular agentic platforms share the same vulnerability classes — all detectable in seconds by Condor in their default configuration.
+The pattern repeats across the other two primary audited platforms:
+
+- **Dify latest**: the code-execution sandbox (`port 8194`) is exposed in the official `docker-compose.yaml`. An attacker with network access executes arbitrary Python with no Dify token — **1 CRITICAL, 2 HIGH** in 2.2 seconds. The `/console/api/workspaces/current/apikey` endpoint also has reflected-origin CORS with `Access-Control-Allow-Credentials: true` (CWE-942), enabling credentialed API key exfiltration from any attacker-controlled origin.
+- **Langflow 1.10.2**: reduced surface, 1 LOW (version disclosure in `/openapi.json`). The 1.x auth architecture is correct; versions < 1.0.18 had unauthenticated RCE (CVE-2024-8673, CVSS 9.8).
+
+The same classes of vulnerabilities appear in **n8n**, **Qdrant**, **Chroma**, **Letta**, and other popular agentic platforms — all detectable in seconds by Condor in their default configuration.
 
 **Original vulnerabilities discovered with Condor:**
 

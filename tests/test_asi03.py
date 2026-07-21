@@ -554,3 +554,31 @@ class TestCorsCheck:
         severities = {f.endpoint: f.severity for f in cors}
         assert severities["/api/v1/credentials"] == Severity.MEDIUM
         assert severities["/console/api/workspaces/current/apikey"] == Severity.HIGH
+
+    @pytest.mark.asyncio
+    async def test_cors_reflected_origin_medium(self):
+        """Reflected origin without credentials → MEDIUM (Dify-style misconfiguration)."""
+        from condor.modules.asi03_privilege import PrivilegeAbuseModule as PAM
+        probe_origin = PAM._CORS_PROBE_ORIGIN
+        mod = PrivilegeAbuseModule()
+        opts = {"/api/v1/credentials": _cors_resp(acao=probe_origin)}
+        findings = await mod.run(_surface(), _mock_cors_platform(options_responses=opts))
+        cors = [f for f in findings if "CORS" in f.title]
+        assert len(cors) == 1
+        assert cors[0].severity == Severity.MEDIUM
+        assert "reflected" in cors[0].title.lower()
+        assert cors[0].cwe_id == "CWE-942"
+
+    @pytest.mark.asyncio
+    async def test_cors_reflected_origin_with_credentials_high(self):
+        """Reflected origin + credentials=true → HIGH (browsers allow credentialed reflected-origin requests)."""
+        from condor.modules.asi03_privilege import PrivilegeAbuseModule as PAM
+        probe_origin = PAM._CORS_PROBE_ORIGIN
+        mod = PrivilegeAbuseModule()
+        opts = {"/console/api/workspaces/current/apikey": _cors_resp(acao=probe_origin, acac="true")}
+        findings = await mod.run(_surface(), _mock_cors_platform(options_responses=opts))
+        cors = [f for f in findings if "CORS" in f.title]
+        assert len(cors) == 1
+        assert cors[0].severity == Severity.HIGH
+        assert "reflected" in cors[0].title.lower()
+        assert "Credentials" in cors[0].evidence

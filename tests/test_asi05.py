@@ -607,3 +607,101 @@ async def test_hayhooks_older_url_fallback_critical():
     assert len(hh) >= 1
     assert hh[0].severity == Severity.CRITICAL
     assert "/my-pipeline/run" in hh[0].endpoint
+
+
+# ── Dify sandbox ──────────────────────────────────────────────────────────────
+
+
+def _dify_surface(**kw) -> AgentSurface:
+    return AgentSurface(platform="dify", base_url="http://localhost:5001", **kw)
+
+
+def _make_sandbox_client(health_ok: bool = True, exec_output: str | None = "condor-sandbox-probe"):
+    """Return a mock httpx.AsyncClient that simulates the Dify sandbox."""
+    health_resp = MagicMock()
+    health_resp.status_code = 200 if health_ok else 503
+    health_resp.text = '"ok"' if health_ok else ""
+
+    run_resp = MagicMock()
+    if exec_output is not None:
+        run_resp.status_code = 200
+        run_resp.json.return_value = {"code": 0, "message": "success", "data": {"stdout": exec_output + "\n", "error": ""}}
+    else:
+        run_resp.status_code = 403
+        run_resp.json.return_value = {"code": 403, "message": "forbidden"}
+
+    client = AsyncMock()
+    client.get = AsyncMock(return_value=health_resp)
+    client.post = AsyncMock(return_value=run_resp)
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=None)
+    return client
+
+
+@pytest.mark.asyncio
+async def test_dify_sandbox_critical_and_high():
+    """Sandbox reachable + default key accepted → HIGH (port exposed) + CRITICAL (exec)."""
+    mod = CodeExecutionModule()
+    plat = MagicMock()
+    plat.base_url = "http://localhost:5001"
+    plat.get = AsyncMock(return_value=resp_404)
+    plat.post = AsyncMock(return_value=resp_404)
+
+    mock_client = _make_sandbox_client(health_ok=True, exec_output="condor-sandbox-probe")
+    with patch("condor.modules.asi05_code_exec.httpx.AsyncClient", return_value=mock_client):
+        findings = await mod._check_dify_sandbox(plat)
+
+    severities = {f.severity for f in findings}
+    assert Severity.HIGH in severities
+    assert Severity.CRITICAL in severities
+    assert all(f.cwe_id == "CWE-306" for f in findings)
+
+
+@pytest.mark.asyncio
+async def test_dify_sandbox_high_only_when_exec_rejected():
+    """Sandbox reachable but all API keys rejected (403) → HIGH only, no CRITICAL."""
+    mod = CodeExecutionModule()
+    plat = MagicMock()
+    plat.base_url = "http://localhost:5001"
+    plat.get = AsyncMock(return_value=resp_404)
+    plat.post = AsyncMock(return_value=resp_404)
+
+    mock_client = _make_sandbox_client(health_ok=True, exec_output=None)
+    with patch("condor.modules.asi05_code_exec.httpx.AsyncClient", return_value=mock_client):
+        findings = await mod._check_dify_sandbox(plat)
+
+    assert any(f.severity == Severity.HIGH for f in findings)
+    assert not any(f.severity == Severity.CRITICAL for f in findings)
+
+
+@pytest.mark.asyncio
+async def test_dify_sandbox_not_reachable():
+    """Sandbox port unreachable (connection refused) → no findings."""
+    mod = CodeExecutionModule()
+    plat = MagicMock()
+    plat.base_url = "http://localhost:5001"
+    plat.get = AsyncMock(return_value=resp_404)
+    plat.post = AsyncMock(return_value=resp_404)
+
+    mock_client = _make_sandbox_client(health_ok=False)
+    with patch("condor.modules.asi05_code_exec.httpx.AsyncClient", return_value=mock_client):
+        findings = await mod._check_dify_sandbox(plat)
+
+    assert findings == []
+
+
+@pytest.mark.asyncio
+async def test_dify_sandbox_via_run_surface_platform():
+    """run() calls _check_dify_sandbox() when surface.platform == 'dify'."""
+    mod = CodeExecutionModule()
+    plat = MagicMock()
+    plat.base_url = "http://localhost:5001"
+    plat.get = AsyncMock(return_value=resp_404)
+    plat.post = AsyncMock(return_value=resp_404)
+
+    mock_client = _make_sandbox_client(health_ok=True, exec_output="/app")
+    with patch("condor.modules.asi05_code_exec.httpx.AsyncClient", return_value=mock_client):
+        findings = await mod.run(_dify_surface(), plat)
+
+    sandbox_findings = [f for f in findings if "sandbox" in f.title.lower()]
+    assert len(sandbox_findings) >= 1

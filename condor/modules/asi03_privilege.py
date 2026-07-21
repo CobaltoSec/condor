@@ -255,45 +255,76 @@ class PrivilegeAbuseModule(BaseModule):
             pass
         return []
 
+    _CORS_PROBE_ORIGIN = "https://condor-probe.evil"
+
     async def _check_cors(self, platform: BasePlatform) -> list[Finding]:
         findings: list[Finding] = []
         for endpoint in _CORS_ENDPOINTS:
             try:
-                r = await platform._client.options(endpoint)
+                r = await platform._client.options(
+                    endpoint, headers={"Origin": self._CORS_PROBE_ORIGIN}
+                )
                 if r.status_code == 405:
                     continue
                 acao = r.headers.get("access-control-allow-origin", "")
-                if acao != "*":
-                    continue
                 acac = r.headers.get("access-control-allow-credentials", "").lower()
+
+                is_wildcard  = acao == "*"
+                is_reflected = acao == self._CORS_PROBE_ORIGIN
+
+                if not (is_wildcard or is_reflected):
+                    continue
+
                 if acac == "true":
                     severity = Severity.HIGH
-                    desc_extra = (
-                        "Combined with Access-Control-Allow-Credentials: true, "
-                        "any origin can send credentialed requests (cookies, auth headers) "
-                        "and read the response, enabling full cross-origin data exfiltration."
-                    )
-                    evidence_extra = ", Access-Control-Allow-Credentials: true"
+                    if is_reflected:
+                        desc_extra = (
+                            "The server reflects any Origin value back as Access-Control-Allow-Origin "
+                            "and sets Access-Control-Allow-Credentials: true. Unlike a wildcard (*), "
+                            "browsers allow credentialed cross-origin requests to reflected origins, "
+                            "enabling full session-authenticated data exfiltration from any attacker-controlled domain."
+                        )
+                        evidence_acao = f"Access-Control-Allow-Origin: {acao} (reflected probe origin)"
+                    else:
+                        desc_extra = (
+                            "Combined with Access-Control-Allow-Credentials: true, "
+                            "any origin can send credentialed requests (cookies, auth headers) "
+                            "and read the response, enabling full cross-origin data exfiltration."
+                        )
+                        evidence_acao = "Access-Control-Allow-Origin: *"
                 else:
                     severity = Severity.MEDIUM
-                    desc_extra = (
-                        "Any origin can read non-credentialed responses from this endpoint, "
-                        "potentially exposing sensitive data to malicious websites."
-                    )
-                    evidence_extra = ""
+                    if is_reflected:
+                        desc_extra = (
+                            "The server reflects any Origin value back as Access-Control-Allow-Origin. "
+                            "Non-credentialed cross-origin responses are readable from any attacker-controlled domain."
+                        )
+                        evidence_acao = f"Access-Control-Allow-Origin: {acao} (reflected probe origin)"
+                    else:
+                        desc_extra = (
+                            "Any origin can read non-credentialed responses from this endpoint, "
+                            "potentially exposing sensitive data to malicious websites."
+                        )
+                        evidence_acao = "Access-Control-Allow-Origin: *"
+
+                title = (
+                    "CORS reflected origin on sensitive endpoint"
+                    if is_reflected else
+                    "CORS wildcard origin on sensitive endpoint"
+                )
+                acac_evidence = ", Access-Control-Allow-Credentials: true" if acac == "true" else ""
                 findings.append(Finding(
-                    title="CORS wildcard origin on sensitive endpoint",
+                    title=title,
                     severity=severity,
                     owasp_id=self.owasp_id,
                     description=(
-                        f"The endpoint {endpoint} responds to OPTIONS requests with "
-                        f"Access-Control-Allow-Origin: *, exposing it to cross-origin requests "
-                        f"from any domain. {desc_extra}"
+                        f"The endpoint {endpoint} has a permissive CORS policy. {desc_extra}"
                     ),
-                    evidence=f"OPTIONS {endpoint} → Access-Control-Allow-Origin: *{evidence_extra}",
+                    evidence=f"OPTIONS {endpoint} → {evidence_acao}{acac_evidence}",
                     remediation=(
-                        "Replace the wildcard CORS policy with an explicit allowlist of trusted origins. "
-                        "Never combine Access-Control-Allow-Origin: * with "
+                        "Restrict CORS to an explicit allowlist of trusted origins. "
+                        "Never reflect the request Origin header unconditionally. "
+                        "Never combine a permissive origin policy with "
                         "Access-Control-Allow-Credentials: true."
                     ),
                     confidence=90,

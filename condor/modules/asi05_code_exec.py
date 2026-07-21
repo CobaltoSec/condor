@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import time
+from urllib.parse import urlparse
+
+import httpx
 
 from .base import BaseModule
 from ..core.models import AgentSurface, Finding, OWASPCategory, Severity
@@ -75,6 +78,22 @@ _LETTA_RUN_PATH_PAYLOAD = {
 _HAYHOOKS_RUN_BODY     = {}
 _HAYHOOKS_RUN_BODY_ALT = {"data": {}}
 
+# Dify sandbox — code execution service exposed on a dedicated port separate from the API
+# In default docker-compose, port 8194 is mapped to the host, bypassing Dify API auth entirely.
+_DIFY_SANDBOX_PORT           = 8194
+_DIFY_SANDBOX_HEALTH_PATH    = "/health"
+_DIFY_SANDBOX_RUN_PATH       = "/v1/sandbox/run"
+_DIFY_SANDBOX_HEALTH_MARKER  = "ok"
+_DIFY_SANDBOX_DEFAULT_KEYS   = ["dify-sandbox", "sandbox", "dify", ""]
+_DIFY_SANDBOX_PROBE_MARKER   = "condor-sandbox-probe"
+_DIFY_SANDBOX_PROBE_PAYLOAD  = {
+    "language": "python3",
+    "code": f'print("{_DIFY_SANDBOX_PROBE_MARKER}")',
+    "preload": "",
+    "enable_network": False,
+}
+_DIFY_SANDBOX_OUTPUT_MARKERS = [_DIFY_SANDBOX_PROBE_MARKER]
+
 # Open WebUI — Python function creation (filter/action type, executed on chat events)
 _OWI_FUNCTION_ENDPOINT = "/api/v1/functions"
 _OWI_FUNCTION_PAYLOAD  = {
@@ -88,6 +107,99 @@ class CodeExecutionModule(BaseModule):
     name        = "code-execution"
     owasp_id    = OWASPCategory.ASI05
     description = "Detects eval/exec sinks and unauthenticated code execution endpoints (ASI05)"
+
+    async def _check_dify_sandbox(self, platform: BasePlatform) -> list[Finding]:
+        """Dify sandbox port 8194 exposed directly — bypasses Dify API auth (CWE-306).
+
+        Root cause: docker-compose maps 0.0.0.0:8194:8194, making the code execution
+        service reachable before any Dify API authentication check fires.
+        """
+        parsed = urlparse(platform.base_url)
+        sandbox_base = f"{parsed.scheme}://{parsed.hostname}:{_DIFY_SANDBOX_PORT}"
+        findings: list[Finding] = []
+
+        # Step 1: health check — is the sandbox port reachable directly?
+        try:
+            async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
+                r = await client.get(f"{sandbox_base}{_DIFY_SANDBOX_HEALTH_PATH}")
+                if r.status_code != 200 or _DIFY_SANDBOX_HEALTH_MARKER not in r.text.lower():
+                    return findings
+                health_text = r.text
+        except Exception:
+            return findings
+
+        findings.append(Finding(
+            title=f"Dify code-execution sandbox accessible on port {_DIFY_SANDBOX_PORT}",
+            severity=Severity.HIGH,
+            owasp_id=self.owasp_id,
+            description=(
+                f"The Dify sandbox service (port {_DIFY_SANDBOX_PORT}) is directly reachable "
+                f"from the network, bypassing the Dify API authentication layer entirely. "
+                f"The sandbox executes arbitrary Python/Node code on behalf of the API server "
+                f"and must be isolated to an internal Docker network."
+            ),
+            evidence=f"GET {sandbox_base}/ → 200 OK: {health_text[:120]}",
+            remediation=(
+                f"Remove the port {_DIFY_SANDBOX_PORT} mapping from the sandbox container in "
+                f"docker-compose.yml. The sandbox must only be reachable by the Dify API "
+                f"container via Docker internal networking, never exposed to the host or internet."
+            ),
+            confidence=90,
+            cwe_id="CWE-306",
+            endpoint=f"{sandbox_base}/",
+        ))
+
+        # Step 2: try code execution with common/default API keys
+        try:
+            async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+                for key in _DIFY_SANDBOX_DEFAULT_KEYS:
+                    headers = {"X-Api-Key": key} if key else {}
+                    try:
+                        r2 = await client.post(
+                            f"{sandbox_base}{_DIFY_SANDBOX_RUN_PATH}",
+                            json=_DIFY_SANDBOX_PROBE_PAYLOAD,
+                            headers=headers,
+                        )
+                        if r2.status_code != 200:
+                            continue
+                        data = r2.json()
+                        if data.get("code") != 0:
+                            continue
+                        output = data.get("data", {}).get("stdout") or ""
+                        if any(m in str(output) for m in _DIFY_SANDBOX_OUTPUT_MARKERS):
+                            key_label = repr(key) if key else "(no key)"
+                            findings.append(Finding(
+                                title=f"Dify sandbox: unauthenticated Python execution via port {_DIFY_SANDBOX_PORT}",
+                                severity=Severity.CRITICAL,
+                                owasp_id=self.owasp_id,
+                                description=(
+                                    f"The Dify sandbox on port {_DIFY_SANDBOX_PORT} accepted a "
+                                    f"Python execution request with API key {key_label} and "
+                                    f"returned command output. An attacker with network access to "
+                                    f"this port can execute arbitrary Python code in the sandbox "
+                                    f"container without any Dify API authentication."
+                                ),
+                                evidence=(
+                                    f"POST {sandbox_base}/v1/sandbox/run "
+                                    f"(X-Api-Key: {key_label}) → code=0, stdout: {str(output)[:200]}"
+                                ),
+                                remediation=(
+                                    f"1. Remove port {_DIFY_SANDBOX_PORT} from docker-compose.yml "
+                                    f"port mappings. "
+                                    f"2. Set CODE_EXECUTION_API_KEY to a strong random value (≥32 chars). "
+                                    f"3. Restrict sandbox network access to Docker internal networks only."
+                                ),
+                                confidence=98,
+                                cwe_id="CWE-306",
+                                endpoint=f"{sandbox_base}/v1/sandbox/run",
+                            ))
+                            break
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        return findings
 
     async def _check_letta_tools_run(self, platform: BasePlatform) -> list[Finding]:
         """Probe Letta /v1/tools/run — arbitrary Python execution without auth (GHSA-p67m-xf4h-2r78)."""
@@ -509,5 +621,9 @@ class CodeExecutionModule(BaseModule):
         # Hayhooks: pipeline execution without auth (CWE-306)
         if surface.platform == "hayhooks":
             findings.extend(await self._check_hayhooks_pipeline_exec(surface, platform))
+
+        # Dify: code execution sandbox port exposed directly
+        if surface.platform == "dify":
+            findings.extend(await self._check_dify_sandbox(platform))
 
         return findings
