@@ -438,3 +438,119 @@ async def test_langgraph_threads_exposed():
     lg = [f for f in findings if "/threads" in f.title]
     assert len(lg) == 1
     assert lg[0].severity == Severity.HIGH
+
+
+# ── CORS misconfiguration probe ───────────────────────────────────────────────
+
+
+def _cors_resp(status=200, acao="*", acac=None):
+    """Build a mock response with CORS headers."""
+    r = MagicMock()
+    r.status_code = status
+    headers = {"content-type": "application/json"}
+    if acao is not None:
+        headers["access-control-allow-origin"] = acao
+    if acac is not None:
+        headers["access-control-allow-credentials"] = acac
+    r.headers = headers
+    r.text = ""
+    r.content = b""
+    r.json.return_value = {}
+    return r
+
+
+def _mock_cors_platform(options_responses=None):
+    """Platform mock with async options() on _client; GET/POST/DELETE all return 404."""
+    plat = _mock_platform()
+
+    async def _options(path, **kw):
+        if options_responses and path in options_responses:
+            return options_responses[path]
+        return _resp(404, content_type="text/plain")
+
+    plat._client = MagicMock()
+    plat._client.options = _options
+    return plat
+
+
+class TestCorsCheck:
+    """Tests for ASI03 CORS misconfiguration probe (_check_cors)."""
+
+    @pytest.mark.asyncio
+    async def test_cors_wildcard_medium(self):
+        """ACAO: * without credentials header → MEDIUM finding."""
+        mod = PrivilegeAbuseModule()
+        opts = {"/api/v1/credentials": _cors_resp(acao="*")}
+        findings = await mod.run(_surface(), _mock_cors_platform(options_responses=opts))
+        cors = [f for f in findings if "CORS" in f.title]
+        assert len(cors) == 1
+        assert cors[0].severity == Severity.MEDIUM
+        assert cors[0].cwe_id == "CWE-942"
+        assert cors[0].owasp_id == OWASPCategory.ASI03
+        assert cors[0].endpoint == "/api/v1/credentials"
+
+    @pytest.mark.asyncio
+    async def test_cors_wildcard_with_credentials_high(self):
+        """ACAO: * + ACAC: true → HIGH finding."""
+        mod = PrivilegeAbuseModule()
+        opts = {"/api/v1/apikey": _cors_resp(acao="*", acac="true")}
+        findings = await mod.run(_surface(), _mock_cors_platform(options_responses=opts))
+        cors = [f for f in findings if "CORS" in f.title]
+        assert len(cors) == 1
+        assert cors[0].severity == Severity.HIGH
+        assert cors[0].cwe_id == "CWE-942"
+        assert "Credentials" in cors[0].evidence
+
+    @pytest.mark.asyncio
+    async def test_cors_no_header_no_finding(self):
+        """No ACAO header in OPTIONS response → no CORS finding."""
+        mod = PrivilegeAbuseModule()
+        opts = {"/api/v1/credentials": _cors_resp(acao=None)}
+        findings = await mod.run(_surface(), _mock_cors_platform(options_responses=opts))
+        cors = [f for f in findings if "CORS" in f.title]
+        assert len(cors) == 0
+
+    @pytest.mark.asyncio
+    async def test_cors_405_no_finding(self):
+        """OPTIONS → 405 Method Not Allowed → no finding."""
+        mod = PrivilegeAbuseModule()
+        opts = {"/api/v1/credentials": _cors_resp(status=405, acao="*")}
+        findings = await mod.run(_surface(), _mock_cors_platform(options_responses=opts))
+        cors = [f for f in findings if "CORS" in f.title]
+        assert len(cors) == 0
+
+    @pytest.mark.asyncio
+    async def test_cors_connection_error_no_crash(self):
+        """Exception raised by options() → no crash, no finding."""
+        mod = PrivilegeAbuseModule()
+
+        async def _raises(path, **kw):
+            raise ConnectionError("connection refused")
+
+        plat = _mock_platform()
+        plat._client = MagicMock()
+        plat._client.options = _raises
+        findings = await mod.run(_surface(), plat)
+        cors = [f for f in findings if "CORS" in f.title]
+        assert len(cors) == 0
+
+    @pytest.mark.asyncio
+    async def test_cors_multiple_endpoints_partial(self):
+        """Multiple endpoints probed; only those with ACAO: * produce findings."""
+        mod = PrivilegeAbuseModule()
+        opts = {
+            "/api/v1/credentials":                    _cors_resp(acao="*"),                    # → finding
+            "/api/v1/apikey":                          _cors_resp(acao="https://example.com"),  # → no finding
+            "/api/v1/variables":                       _cors_resp(acao=None),                   # → no finding
+            "/rest/settings":                          _cors_resp(status=405, acao="*"),         # → no finding (405)
+            "/console/api/workspaces/current/apikey":  _cors_resp(acao="*", acac="true"),        # → finding (HIGH)
+        }
+        findings = await mod.run(_surface(), _mock_cors_platform(options_responses=opts))
+        cors = [f for f in findings if "CORS" in f.title]
+        assert len(cors) == 2
+        endpoints = {f.endpoint for f in cors}
+        assert "/api/v1/credentials" in endpoints
+        assert "/console/api/workspaces/current/apikey" in endpoints
+        severities = {f.endpoint: f.severity for f in cors}
+        assert severities["/api/v1/credentials"] == Severity.MEDIUM
+        assert severities["/console/api/workspaces/current/apikey"] == Severity.HIGH

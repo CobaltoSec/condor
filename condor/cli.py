@@ -103,7 +103,7 @@ _PLATFORMS = {
     "chroma":        ChromaPlatform,
 }
 
-_VALID_FORMATS = ("json", "sarif", "both", "table", "html", "junit")
+_VALID_FORMATS = ("json", "sarif", "both", "table", "html", "junit", "compliance")
 
 
 @app.command()
@@ -394,6 +394,10 @@ async def _scan(
         if fmt == "junit":
             from .junit_report import to_junit
             junit_path.write_text(to_junit(displayed), encoding="utf-8")
+        if fmt == "compliance":
+            from .compliance_report import to_compliance_html
+            compliance_path = output_dir / "compliance-report.html"
+            compliance_path.write_text(to_compliance_html(displayed, platform_name), encoding="utf-8")
 
         if show_ui:
             _print_summary(displayed)
@@ -405,6 +409,8 @@ async def _scan(
                 console.print(f"HTML   : {html_path}")
             if fmt == "junit":
                 console.print(f"JUnit  : {junit_path}")
+            if fmt == "compliance":
+                console.print(f"[green]Compliance report:[/green] {compliance_path}")
 
     if fail_on:
         try:

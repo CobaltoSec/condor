@@ -86,6 +86,15 @@ _MASS_ASSIGN_FIELDS = {
     "userType": "administrator",
 }
 
+_CORS_ENDPOINTS = [
+    "/api/v1/credentials",
+    "/api/v1/apikey",
+    "/api/v1/variables",
+    "/rest/settings",
+    "/console/api/workspaces/current/apikey",
+    "/v1/agents",
+]
+
 
 class PrivilegeAbuseModule(BaseModule):
     name        = "privilege-abuse"
@@ -246,6 +255,55 @@ class PrivilegeAbuseModule(BaseModule):
             pass
         return []
 
+    async def _check_cors(self, platform: BasePlatform) -> list[Finding]:
+        findings: list[Finding] = []
+        for endpoint in _CORS_ENDPOINTS:
+            try:
+                r = await platform._client.options(endpoint)
+                if r.status_code == 405:
+                    continue
+                acao = r.headers.get("access-control-allow-origin", "")
+                if acao != "*":
+                    continue
+                acac = r.headers.get("access-control-allow-credentials", "").lower()
+                if acac == "true":
+                    severity = Severity.HIGH
+                    desc_extra = (
+                        "Combined with Access-Control-Allow-Credentials: true, "
+                        "any origin can send credentialed requests (cookies, auth headers) "
+                        "and read the response, enabling full cross-origin data exfiltration."
+                    )
+                    evidence_extra = ", Access-Control-Allow-Credentials: true"
+                else:
+                    severity = Severity.MEDIUM
+                    desc_extra = (
+                        "Any origin can read non-credentialed responses from this endpoint, "
+                        "potentially exposing sensitive data to malicious websites."
+                    )
+                    evidence_extra = ""
+                findings.append(Finding(
+                    title="CORS wildcard origin on sensitive endpoint",
+                    severity=severity,
+                    owasp_id=self.owasp_id,
+                    description=(
+                        f"The endpoint {endpoint} responds to OPTIONS requests with "
+                        f"Access-Control-Allow-Origin: *, exposing it to cross-origin requests "
+                        f"from any domain. {desc_extra}"
+                    ),
+                    evidence=f"OPTIONS {endpoint} → Access-Control-Allow-Origin: *{evidence_extra}",
+                    remediation=(
+                        "Replace the wildcard CORS policy with an explicit allowlist of trusted origins. "
+                        "Never combine Access-Control-Allow-Origin: * with "
+                        "Access-Control-Allow-Credentials: true."
+                    ),
+                    confidence=90,
+                    cwe_id="CWE-942",
+                    endpoint=endpoint,
+                ))
+            except Exception:
+                pass
+        return findings
+
     async def run(self, surface: AgentSurface, platform: BasePlatform) -> list[Finding]:
         findings: list[Finding] = []
 
@@ -349,4 +407,5 @@ class PrivilegeAbuseModule(BaseModule):
         findings.extend(await self._check_header_bypass(platform))
         findings.extend(await self._check_langflow_auto_login(platform))
         findings.extend(await self._check_n8n_owner_setup(platform))
+        findings.extend(await self._check_cors(platform))
         return findings

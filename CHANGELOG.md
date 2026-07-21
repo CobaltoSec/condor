@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.1.0] — 2026-07-21 — CORS Detection + Compliance Report
+
+- **CORS misconfiguration detection (ASI03)**: nuevo probe `_check_cors()` — OPTIONS a endpoints sensibles; `Access-Control-Allow-Origin: *` → MEDIUM (CWE-942); wildcard + `Access-Control-Allow-Credentials: true` → HIGH
+- **`--format compliance`**: reporte HTML self-contained agrupado por control NIST AI RMF / ISO 42001 / EU AI Act — útil para auditorías de compliance
+- **Test coverage ampliada**: `test_platform_flowise.py` (14 tests) + `test_config.py` (11 tests) — cerradas las dos plataformas/módulos sin cobertura propia
+- 431 → **468 tests passing** (+37, 0 regresiones)
+
+## [RT-CONDOR-SCALE-01] — 2026-07-21 — INFRA + CFP SUBMIT
+
+- **CFP Ekoparty 2026 submitteado**: abstract + slides a Sessionize — Submission #2 (Corvus es #1). Deadline 14 agosto, ya entregado. Título: "La alfombra de bienvenida de JADEPUFFER: auditando infraestructura de IA agéntica expuesta"
+- **Slides PDF**: `docs/slides.html` → PDF 15 páginas vía screenshot por slide (Chrome headless ignora `@page size` en px — fix: PNG por slide + fpdf2)
+- **CORS probe — ASI03**: `_check_cors()` + `_CORS_ENDPOINTS` (6 endpoints) — OPTIONS request, lee ACAO/ACAC headers → MEDIUM/HIGH CWE-942. 6 tests nuevos en `test_asi03.py`
+- **`--format compliance`**: `condor/compliance_report.py` — `to_compliance_html()` invierte mapping de `compliance.py` para agrupar findings por framework/control. HTML dark mode, KPIs ejecutivos, 3 secciones (NIST/ISO/EU). Wired en `cli.py`, genera `compliance-report.html`
+- **`tests/test_platform_flowise.py`** — 14 tests: health_check (200/401/error), enumerate (flows/vacío/auth/endpoints/IDs/version/tools), auth (Bearer/Basic/sin auth)
+- **`tests/test_config.py`** — 11 tests: load_config, apply_config_defaults, home fallback, yaml inválido/vacío/no-dict, prioridad CLI > config
+- +37 tests (431 → **468/468 passing**)
+
 ## [RT-CONDOR-CFP-SUBMIT] — 2026-07-18 — CFP ABSTRACT + SLIDES EKOPARTY 2026
 
 - **cfp-abstract.md — 3 gaps cerrados**: (1) claim de escala con datos reales — 12k+ instancias Flowise (CVE-2025-59528 CVSS 10.0), ~7k Langflow (JADEPUFFER/CVE-2025-3248), 1.342 registros cifrados, 361 IPs maliciosas activas; (2) GHSA-95xp-fhhm-xfj2 (n8n owner takeover CWE-306) + GHSA-p67m-xf4h-2r78 (Letta RCE CWE-306) con descripción técnica exacta; (3) diferenciador vs Nuclei — ejemplo concreto de vector dimensions (`[0.0]*4` → 400 vs Condor lee dim → CRITICAL)

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cobaltosec-condor"
-version = "1.0.0"
+version = "1.1.0"
 description = "Agentic AI security scanner — OWASP ASI Top 10"
 authors = [{name = "CobaltoSec", email = "security@cobalto-sec.tech"}]
 license = {text = "MIT"}
