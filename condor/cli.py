@@ -355,6 +355,9 @@ async def _scan(
             if show_ui:
                 console.print(f"[yellow]DefectDojo export failed: {exc}[/yellow]")
 
+    from .integrations.notify import emit_scan_result
+    emit_scan_result(result)
+
     # Save baseline if requested
     if save_baseline_path:
         from .baseline import save_baseline

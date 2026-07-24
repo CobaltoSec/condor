@@ -6,6 +6,29 @@ import httpx
 from ..core.models import ScanResult
 
 
+def emit_scan_result(result: ScanResult) -> None:
+    """Emit condor.scan.completed event to CobaltoHQ hub (silent fail)."""
+    try:
+        from cobaltohq.client import emit  # type: ignore[import]
+    except ImportError:
+        return
+    try:
+        counts = result.finding_count
+        emit(
+            "condor.scan.completed",
+            {
+                "target": result.target,
+                "platform": result.platform,
+                "findings_total": sum(counts.values()),
+                "severity_counts": dict(counts),
+                "duration_seconds": result.duration_seconds,
+            },
+            source_tool="condor",
+        )
+    except Exception:
+        pass
+
+
 async def notify_slack(webhook_url: str, result: ScanResult) -> None:
     counts = result.finding_count
     total = sum(counts.values())
