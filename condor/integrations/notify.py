@@ -9,7 +9,7 @@ from ..core.models import ScanResult
 def emit_scan_result(result: ScanResult) -> None:
     """Emit condor.scan.completed event to CobaltoHQ hub (silent fail)."""
     try:
-        from cobaltohq.client import emit  # type: ignore[import]
+        from cobalt_hub_client import emit  # type: ignore[import]
     except ImportError:
         return
     try:
